@@ -1,0 +1,213 @@
+/* ============================================================
+   GEOM3D — Laboratorio Virtual de Sólidos
+   Design tokens: "instrumento de laboratorio digital"
+   ============================================================ */
+
+:root {
+  /* --- Color: deep lab-navy base, teal signal, amber readout --- */
+  --c-bg:        #0A121F;
+  --c-bg-raised: #0F1B2E;
+  --c-panel:     #12203A;
+  --c-panel-2:   #16273F;
+  --c-line:      #23334D;
+  --c-line-soft: #1A2740;
+
+  --c-teal:      #17BFA8;
+  --c-teal-dim:  #0E7A6C;
+  --c-amber:     #F5A524;
+  --c-amber-dim: #A66E17;
+  --c-red:       #F0556B;
+  --c-green:     #35C97E;
+
+  --c-text:      #E7EEF7;
+  --c-text-dim:  #9FB0C8;
+  --c-text-faint:#5E7191;
+
+  /* --- Type --- */
+  --f-display: 'Space Grotesk', 'Segoe UI', sans-serif;
+  --f-body:    'Inter', 'Segoe UI', sans-serif;
+  --f-mono:    'JetBrains Mono', 'Courier New', monospace;
+
+  /* --- Spacing / radius --- */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --gap:  16px;
+
+  --shadow-panel: 0 8px 30px rgba(0,0,0,0.35);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--f-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image:
+    radial-gradient(circle at 15% 0%, rgba(23,191,168,0.07), transparent 45%),
+    radial-gradient(circle at 100% 100%, rgba(245,165,36,0.05), transparent 50%);
+  background-attachment: fixed;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--f-display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+
+p { margin: 0 0 0.6em 0; color: var(--c-text-dim); line-height: 1.55; }
+
+button { font-family: var(--f-body); }
+
+a { color: var(--c-teal); }
+
+::selection { background: var(--c-teal-dim); color: #fff; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--c-line); border-radius: 4px; }
+
+/* Focus visibility (accessibility) */
+:focus-visible {
+  outline: 2px solid var(--c-teal);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   App shell
+   ============================================================ */
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* --- Top bar --- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--c-line-soft);
+  background: linear-gradient(180deg, var(--c-bg-raised), var(--c-bg));
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.brand__mark {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--c-amber);
+  border: 1px solid var(--c-amber-dim);
+  border-radius: 4px;
+  padding: 2px 6px;
+  letter-spacing: 0.08em;
+}
+
+.brand__name {
+  font-family: var(--f-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--c-text);
+}
+
+.brand__name span { color: var(--c-teal); }
+
+/* --- Phase nav (EXPLORAR / CALCULAR / COMPROBAR) --- */
+.phasenav {
+  display: flex;
+  gap: 4px;
+  background: var(--c-panel);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+  padding: 4px;
+}
+
+.phasenav button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--c-text-dim);
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  padding: 9px 14px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.phasenav button .num {
+  color: var(--c-text-faint);
+  font-size: 11px;
+}
+
+.phasenav button[aria-current="true"] {
+  background: var(--c-teal-dim);
+  color: #fff;
+}
+.phasenav button[aria-current="true"] .num { color: rgba(255,255,255,0.7); }
+
+.phasenav button:hover:not([aria-current="true"]) {
+  color: var(--c-text);
+  background: var(--c-panel-2);
+}
+
+/* --- Main layout --- */
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.view { display: none; flex: 1; flex-direction: column; }
+.view[data-active="true"] { display: flex; }
+
+/* --- Section headers --- */
+.section-head {
+  padding: 18px 20px 6px;
+}
+.section-head .eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--c-amber);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.section-head h2 {
+  font-size: 22px;
+  margin-top: 4px;
+}
+.section-head p { max-width: 60ch; margin-top: 6px; }
+
+/* --- Footer / status strip --- */
+.statusbar {
+  border-top: 1px solid var(--c-line-soft);
+  padding: 8px 20px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--c-text-faint);
+  display: flex;
+  justify-content: space-between;
+}

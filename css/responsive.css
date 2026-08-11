@@ -1,0 +1,41 @@
+/* ============================================================
+   GEOM3D — Responsive rules (mobile-first base already in
+   styles.css / components.css; this file layers refinements)
+   ============================================================ */
+
+/* Small phones */
+@media (max-width: 420px) {
+  .brand__name { font-size: 17px; }
+  .phasenav button { padding: 8px 9px; font-size: 11px; }
+  .phasenav button span:not(.num) { display: none; } /* icon/number-only on tiny screens */
+  .section-head h2 { font-size: 19px; }
+  .viewport-wrap { margin: 10px 12px; min-height: 280px; }
+  .control-panel { padding: 12px 12px 20px; }
+  .catalog-grid { grid-template-columns: repeat(2, 1fr); padding: 10px 12px 18px; gap: 10px; }
+  .hud { font-size: 10px; max-width: 150px; }
+}
+
+/* Tablet portrait */
+@media (min-width: 600px) and (max-width: 899px) {
+  .catalog-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Desktop */
+@media (min-width: 900px) {
+  .catalog-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); padding: 16px 24px 28px; }
+  .section-head { padding: 22px 24px 6px; }
+  .viewport-wrap { margin: 16px; }
+  .statusbar { padding: 8px 24px; }
+  .topbar { padding: 14px 24px; }
+}
+
+/* Large desktop */
+@media (min-width: 1400px) {
+  .control-panel { width: 380px; }
+}
+
+/* Ensure touch targets stay comfortable on touch devices */
+@media (pointer: coarse) {
+  .icon-btn, .dim-stepper button { width: 42px; height: 42px; }
+  .btn { padding: 12px 16px; }
+}

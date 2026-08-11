@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>GEOM3D — Laboratorio Virtual de Sólidos</title>
+<meta name="description" content="Laboratorio virtual interactivo para explorar, calcular y comprobar el área y el volumen de cuerpos geométricos." />
+<meta name="theme-color" content="#0A121F" />
+<link rel="manifest" href="manifest.json" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/styles.css" />
+<link rel="stylesheet" href="css/components.css" />
+<link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__mark">LAB·3D</span>
+      <h1 class="brand__name">GEOM<span>3D</span></h1>
+    </div>
+
+    <nav class="phasenav" role="tablist" aria-label="Fases del laboratorio">
+      <button role="tab" id="tab-explore" data-phase="explore" aria-current="true">
+        <span class="num">①</span><span>Explorar</span>
+      </button>
+      <button role="tab" id="tab-calculate" data-phase="calculate" aria-current="false">
+        <span class="num">②</span><span>Calcular</span>
+      </button>
+      <button role="tab" id="tab-check" data-phase="check" aria-current="false">
+        <span class="num">③</span><span>Comprobar</span>
+      </button>
+    </nav>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" id="btn-open-progress" title="Mi progreso" aria-label="Mi progreso">📊</button>
+      <button class="icon-btn" id="btn-open-teacher" title="Panel del docente" aria-label="Panel del docente">🧑‍🏫</button>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ============ FASE 1 — EXPLORAR ============ -->
+    <section class="view" id="view-explore" data-active="true" role="tabpanel" aria-labelledby="tab-explore">
+      <div class="section-head">
+        <span class="eyebrow">Fase 1 · Construir y explorar</span>
+        <h2>Catálogo de sólidos</h2>
+        <p>Elige un cuerpo geométrico para observarlo en 3D. Rótalo, acércalo y descompón sus caras antes de pasar a calcular.</p>
+      </div>
+
+      <div class="mode-switch" id="explore-mode-switch"></div>
+
+      <div id="catalog-explore" class="catalog-grid"></div>
+
+      <div class="lab-layout" id="explore-lab" hidden>
+        <div class="viewport-wrap">
+          <canvas id="canvas-explore"></canvas>
+          <div class="corner corner--tl"></div><div class="corner corner--tr"></div>
+          <div class="corner corner--bl"></div><div class="corner corner--br"></div>
+          <div class="hud-name" id="explore-solid-name">—</div>
+          <div class="hud" id="explore-hud"></div>
+          <div class="hud-tools" id="explore-tools"></div>
+        </div>
+        <div class="control-panel">
+          <div class="panel-block" id="explore-dims"></div>
+          <div class="panel-block" id="explore-viewopts"></div>
+          <div class="panel-block">
+            <h3>Herramientas</h3>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <button class="btn btn--amber" id="btn-descomponer">🔍 Descomponer</button>
+              <button class="btn btn--ghost" id="btn-desarrollo">📐 Ver desarrollo plano</button>
+              <button class="btn btn--ghost" id="btn-ar" disabled>📱 Ver en mi espacio <span style="font-family:var(--f-mono); font-size:10px; color:var(--c-text-faint);">(próx.)</span></button>
+            </div>
+          </div>
+          <div class="panel-block" id="explore-components" hidden></div>
+          <button class="btn btn--primary" id="btn-go-calculate">Ir a calcular este sólido →</button>
+        </div>
+      </div>
+
+      <div class="lab-layout" id="revolution-lab" hidden>
+        <div class="viewport-wrap">
+          <canvas id="canvas-revolution"></canvas>
+          <div class="corner corner--tl"></div><div class="corner corner--tr"></div>
+          <div class="corner corner--bl"></div><div class="corner corner--br"></div>
+          <div class="hud-name" id="revolution-name">—</div>
+        </div>
+        <div class="control-panel">
+          <div class="panel-block">
+            <h3>Figura plana</h3>
+            <div class="chip-row" id="revolution-presets"></div>
+          </div>
+          <div class="panel-block">
+            <h3>Ángulo de revolución</h3>
+            <div class="angle-control">
+              <div class="angle-readout" id="revolution-angle-readout">0°</div>
+              <input type="range" id="revolution-angle" min="0" max="360" step="1" value="0" />
+              <div class="angle-transport">
+                <button class="icon-btn" id="btn-rev-reset" title="Reiniciar">⟲</button>
+                <button class="icon-btn" id="btn-rev-play" title="Reproducir">▶</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FASE 2 — CALCULAR ============ -->
+    <section class="view" id="view-calculate" role="tabpanel" aria-labelledby="tab-calculate">
+      <div class="section-head">
+        <span class="eyebrow">Fase 2 · Modificar y calcular</span>
+        <h2>Laboratorio de medidas</h2>
+        <p>Ajusta las dimensiones, calcula tú primero el resultado y luego comprueba tu respuesta.</p>
+      </div>
+
+      <div class="mode-switch" id="calc-mode-switch"></div>
+
+      <div id="catalog-calculate" class="catalog-grid"></div>
+
+      <div id="reto-panel" class="panel-block" style="margin:0 20px 16px;" hidden>
+        <h3>Retos matemáticos</h3>
+        <div class="level-chip-row" id="reto-level-chips"></div>
+        <div class="reto-prompt" id="reto-prompt-text">Elige un nivel y pulsa "Nuevo reto".</div>
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button class="btn btn--amber" id="btn-new-reto">🎲 Nuevo reto</button>
+        </div>
+      </div>
+
+      <div class="lab-layout" id="calculate-lab" hidden>
+        <div class="viewport-wrap">
+          <canvas id="canvas-calculate"></canvas>
+          <div class="corner corner--tl"></div><div class="corner corner--tr"></div>
+          <div class="corner corner--bl"></div><div class="corner corner--br"></div>
+          <div class="hud-name" id="calc-solid-name">—</div>
+          <div class="hud" id="calc-hud"></div>
+        </div>
+        <div class="control-panel">
+          <div class="panel-block" id="calc-dims"></div>
+
+          <div class="panel-block" id="calc-quantity-block">
+            <h3>¿Qué quieres calcular?</h3>
+            <div class="chip-row" id="calc-quantity-chips"></div>
+          </div>
+
+          <div class="panel-block" id="predict-panel" hidden>
+            <h3>🔮 Predicción</h3>
+            <p id="predict-question" style="font-size:13px;"></p>
+            <div class="predict-options" id="predict-options"></div>
+            <div id="predict-feedback" style="font-size:12.5px; display:none;"></div>
+          </div>
+
+          <div class="panel-block">
+            <h3>Tu respuesta</h3>
+            <p style="margin-bottom:10px; font-size:12.5px;" id="calc-instruction">Calcula tú el resultado antes de comprobar.</p>
+            <div class="calc-field">
+              <label for="calc-answer" id="calc-answer-label">Resultado</label>
+              <div class="input-row">
+                <input type="text" inputmode="decimal" id="calc-answer" placeholder="Ej: 502,65" />
+                <span class="unit-suffix" id="calc-unit-suffix">cm³</span>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn--primary" id="btn-comprobar">Comprobar</button>
+              <button class="btn btn--ghost" id="btn-ver-procedimiento">Ver procedimiento</button>
+            </div>
+            <div class="feedback" id="calc-feedback"></div>
+            <div class="procedure-steps" id="calc-procedure" style="margin-top:10px;"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FASE 3 — COMPROBAR ============ -->
+    <section class="view" id="view-check" role="tabpanel" aria-labelledby="tab-check">
+      <div class="section-head">
+        <span class="eyebrow">Fase 3 · Experimentar y comprobar</span>
+        <h2>Laboratorio experimental</h2>
+        <p>Elige un sólido calculado y comprueba su volumen mediante tres métodos experimentales distintos.</p>
+      </div>
+
+      <div id="catalog-check" class="catalog-grid"></div>
+
+      <div id="check-lab" hidden>
+        <div class="method-tabs" id="method-tabs" role="tablist"></div>
+
+        <!-- Método 1 — Líquido -->
+        <div class="method-panel" id="method-liquid" data-active="true">
+          <div class="method-viewport">
+            <canvas id="canvas-liquid"></canvas>
+            <div class="corner corner--tl"></div><div class="corner corner--tr"></div>
+            <div class="corner corner--bl"></div><div class="corner corner--br"></div>
+            <div class="hud-name" id="liquid-solid-name">—</div>
+          </div>
+          <div class="method-side panel-block">
+            <h3>Método 1 · Llenado con líquido</h3>
+            <p style="font-size:12.5px;">Volumen calculado: <strong id="liquid-target-volume" style="color:var(--c-amber)">—</strong> cm³</p>
+            <div style="display:flex; gap:8px; margin:10px 0;">
+              <button class="btn btn--primary btn--sm" id="btn-llenar">💧 Llenar</button>
+              <button class="btn btn--ghost btn--sm" id="btn-transferir" disabled>🧪 Transferir</button>
+            </div>
+            <div id="liquid-probeta-wrap" class="probeta-row" style="display:none;"></div>
+          </div>
+        </div>
+
+        <!-- Método 2 — Desplazamiento -->
+        <div class="method-panel" id="method-displacement">
+          <div class="method-side panel-block" style="width:100%;">
+            <h3>Método 2 · Desplazamiento de líquido</h3>
+            <p style="font-size:12.5px;">Se parte de una probeta con 400 ml. Al introducir el sólido, el nivel sube según su volumen.</p>
+            <button class="btn btn--primary btn--sm" id="btn-desplazar">🧪 Introducir objeto</button>
+            <div id="displacement-wrap" style="margin-top:10px;"></div>
+          </div>
+        </div>
+
+        <!-- Método 3 — Cubos unitarios -->
+        <div class="method-panel" id="method-cubes">
+          <div class="method-viewport">
+            <canvas id="canvas-cubes"></canvas>
+            <div class="corner corner--tl"></div><div class="corner corner--tr"></div>
+            <div class="corner corner--bl"></div><div class="corner corner--br"></div>
+            <div class="hud-name" id="cubes-solid-name">—</div>
+          </div>
+          <div class="method-side panel-block">
+            <h3>Método 3 · Cubos unitarios</h3>
+            <p style="font-size:12.5px;">Cada cubo representa 1 cm³. Cuenta cuántos caben dentro del sólido.</p>
+            <button class="btn btn--primary btn--sm" id="btn-llenar-cubos">🧊 Llenar con cubos</button>
+            <p style="margin-top:10px; font-family:var(--f-mono); font-size:14px;" id="cubes-count">Cantidad de cubos: —</p>
+          </div>
+        </div>
+
+        <div class="panel-block" id="comparison-block" style="margin:0 20px 16px;" hidden></div>
+        <div class="panel-block" id="reflection-block" style="margin:0 20px 28px;" hidden></div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="statusbar">
+    <span id="status-left">GEOM3D · Etapa 1–5</span>
+    <span id="status-right">Sólido activo: —</span>
+  </footer>
+
+</div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="js/state.js"></script>
+<script src="js/geometry/prisms.js"></script>
+<script src="js/geometry/cylinders.js"></script>
+<script src="js/geometry/cones.js"></script>
+<script src="js/geometry/spheres.js"></script>
+<script src="js/geometry/pyramids.js"></script>
+<script src="js/geometry/polyhedra.js"></script>
+<script src="js/geometry/revolution.js"></script>
+<script src="js/geometry/solids.js"></script>
+<script src="js/calculations/formulas.js"></script>
+<script src="js/calculations/areas.js"></script>
+<script src="js/calculations/volumes.js"></script>
+<script src="js/ui/controls.js"></script>
+<script src="js/ui/panels.js"></script>
+<script src="js/ui/feedback.js"></script>
+<script src="js/ui/development.js"></script>
+<script src="js/experiments/measurement.js"></script>
+<script src="js/experiments/liquid.js"></script>
+<script src="js/experiments/displacement.js"></script>
+<script src="js/experiments/unit-cubes.js"></script>
+<script src="js/activities/predictions.js"></script>
+<script src="js/activities/challenges.js"></script>
+<script src="js/activities/evaluation.js"></script>
+<script src="js/navigation.js"></script>
+<script src="js/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('service-worker.js').catch((err) => {
+        console.warn('GEOM3D: no se pudo registrar el service worker.', err);
+      });
+    });
+  }
+</script>
+</body>
+</html>
