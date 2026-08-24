@@ -32,8 +32,18 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return structuredClone(defaultState);
     const parsed = JSON.parse(raw);
-    // shallow-merge to survive schema additions between versions
-    return { ...structuredClone(defaultState), ...parsed };
+    // Merge profundo: conserva nuevos subcampos aunque exista estado antiguo.
+    const merge = (base, extra) => {
+      if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return extra ?? base;
+      const out = { ...base };
+      Object.keys(extra).forEach((key) => {
+        out[key] = (base[key] && typeof base[key] === 'object' && !Array.isArray(base[key]))
+          ? merge(base[key], extra[key])
+          : extra[key];
+      });
+      return out;
+    };
+    return merge(structuredClone(defaultState), parsed);
   } catch (e) {
     console.warn('GEOM3D: no se pudo leer el estado guardado, usando valores por defecto.', e);
     return structuredClone(defaultState);

@@ -37,20 +37,37 @@
       </button>
     </nav>
 
+    <div class="learning-progress" aria-label="Ruta de aprendizaje">
+      <span class="progress-dot is-active" data-step="explore"></span>
+      <span class="progress-line"></span>
+      <span class="progress-dot" data-step="calculate"></span>
+      <span class="progress-line"></span>
+      <span class="progress-dot" data-step="check"></span>
+    </div>
     <div class="topbar-actions">
       <button class="icon-btn" id="btn-open-progress" title="Mi progreso" aria-label="Mi progreso">📊</button>
       <button class="icon-btn" id="btn-open-teacher" title="Panel del docente" aria-label="Panel del docente">🧑‍🏫</button>
+      <button class="icon-btn" id="btn-open-diagnostics" title="Diagnóstico técnico" aria-label="Diagnóstico técnico">🩺</button>
     </div>
   </header>
 
   <main>
+    <div class="route-banner" id="route-banner">
+      <div class="route-copy">
+        <span class="route-kicker">RUTA GEOM3D</span>
+        <strong id="route-title">Observa → manipula → explica</strong>
+        <span id="route-subtitle">Comienza con un sólido para activar tu laboratorio.</span>
+      </div>
+      <div class="route-status" id="route-status">0 / 3 etapas</div>
+    </div>
 
     <!-- ============ FASE 1 — EXPLORAR ============ -->
     <section class="view" id="view-explore" data-active="true" role="tabpanel" aria-labelledby="tab-explore">
       <div class="section-head">
-        <span class="eyebrow">Fase 1 · Construir y explorar</span>
-        <h2>Catálogo de sólidos</h2>
-        <p>Elige un cuerpo geométrico para observarlo en 3D. Rótalo, acércalo y descompón sus caras antes de pasar a calcular.</p>
+        <span class="eyebrow">01 · OBSERVAR</span>
+        <h2>Primero entiende el sólido</h2>
+        <p>No empieces por la fórmula. Elige un cuerpo, cambia sus medidas y descubre cómo sus dimensiones construyen el espacio.</p>
+        <div class="learning-goal"><strong>Tu misión:</strong> identifica sus dimensiones, caras y forma antes de calcular.</div>
       </div>
 
       <div class="mode-switch" id="explore-mode-switch"></div>
@@ -69,6 +86,18 @@
         <div class="control-panel">
           <div class="panel-block" id="explore-dims"></div>
           <div class="panel-block" id="explore-viewopts"></div>
+          <div class="panel-block formation-panel" id="formation-panel">
+            <h3>Construcción del sólido · 4 pasos</h3>
+            <p class="formation-explain" id="formation-explain">Observa cómo la figura se construye desde su base hasta el sólido completo. Puedes pausar, avanzar o retroceder.</p>
+            <div class="formation-stage" id="formation-stage">Paso 1 · Preparar la base</div>
+            <div class="formation-progress"><span id="formation-progress-bar"></span></div>
+            <div class="formation-actions">
+              <button class="btn btn--primary btn--sm" id="btn-formation-play">▶ Construir</button>
+              <button class="btn btn--ghost btn--sm" id="btn-formation-prev">←</button>
+              <button class="btn btn--ghost btn--sm" id="btn-formation-next">→</button>
+              <button class="btn btn--ghost btn--sm" id="btn-formation-reset">⟲</button>
+            </div>
+          </div>
           <div class="panel-block">
             <h3>Herramientas</h3>
             <div style="display:flex; flex-direction:column; gap:8px;">
@@ -112,9 +141,10 @@
     <!-- ============ FASE 2 — CALCULAR ============ -->
     <section class="view" id="view-calculate" role="tabpanel" aria-labelledby="tab-calculate">
       <div class="section-head">
-        <span class="eyebrow">Fase 2 · Modificar y calcular</span>
-        <h2>Laboratorio de medidas</h2>
-        <p>Ajusta las dimensiones, calcula tú primero el resultado y luego comprueba tu respuesta.</p>
+        <span class="eyebrow">02 · RAZONAR</span>
+        <h2>Ahora explica cuánto ocupa</h2>
+        <p>Usa las dimensiones del modelo para encontrar área o volumen. Intenta resolverlo antes de mirar el procedimiento.</p>
+        <div class="learning-goal"><strong>Tu misión:</strong> relaciona dimensiones → fórmula → resultado y comprueba si tiene sentido.</div>
       </div>
 
       <div class="mode-switch" id="calc-mode-switch"></div>
@@ -177,9 +207,10 @@
     <!-- ============ FASE 3 — COMPROBAR ============ -->
     <section class="view" id="view-check" role="tabpanel" aria-labelledby="tab-check">
       <div class="section-head">
-        <span class="eyebrow">Fase 3 · Experimentar y comprobar</span>
-        <h2>Laboratorio experimental</h2>
-        <p>Elige un sólido calculado y comprueba su volumen mediante tres métodos experimentales distintos.</p>
+        <span class="eyebrow">03 · COMPROBAR</span>
+        <h2>¿Tu cálculo describe la realidad?</h2>
+        <p>Comprueba el volumen mediante líquido, desplazamiento y cubos unitarios. La matemática deja de ser una respuesta aislada: se convierte en una medición.</p>
+        <div class="learning-goal"><strong>Tu misión:</strong> compara métodos y explica por qué llegan al mismo volumen.</div>
       </div>
 
       <div id="catalog-check" class="catalog-grid"></div>
@@ -246,7 +277,9 @@
 
 </div>
 
+<script>window.GEOM3D_VERSION="2.3.0";</script>
 <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="js/diagnostics.js"></script>
 <script src="js/state.js"></script>
 <script src="js/geometry/prisms.js"></script>
 <script src="js/geometry/cylinders.js"></script>

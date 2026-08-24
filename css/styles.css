@@ -211,3 +211,53 @@ main {
   display: flex;
   justify-content: space-between;
 }
+
+
+/* ============================================================
+   GEOM3D — capa pedagógica / ruta de aprendizaje
+   ============================================================ */
+.learning-progress{
+  display:flex; align-items:center; gap:5px; min-width:130px; justify-content:center;
+}
+.progress-dot{
+  width:9px; height:9px; border-radius:50%; background:var(--c-line);
+  border:1px solid var(--c-text-faint); transition:.2s ease;
+}
+.progress-dot.is-active,.progress-dot.is-done{
+  background:var(--c-teal); border-color:var(--c-teal);
+  box-shadow:0 0 0 3px rgba(23,191,168,.10);
+}
+.progress-line{height:1px;width:22px;background:var(--c-line);}
+
+.route-banner{
+  margin:14px 20px 0;
+  padding:12px 16px;
+  display:flex; align-items:center; justify-content:space-between; gap:18px;
+  border:1px solid var(--c-line);
+  border-left:3px solid var(--c-teal);
+  border-radius:var(--r-md);
+  background:linear-gradient(100deg,rgba(23,191,168,.08),rgba(18,32,58,.75));
+}
+.route-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.route-kicker{font:600 10px var(--f-mono);letter-spacing:.12em;color:var(--c-teal)}
+.route-copy strong{font-size:14px;color:var(--c-text)}
+.route-copy span:last-child{font-size:12px;color:var(--c-text-dim)}
+.route-status{font:600 11px var(--f-mono);color:var(--c-amber);white-space:nowrap}
+
+.learning-goal{
+  margin-top:10px;
+  display:inline-block;
+  padding:8px 11px;
+  border-radius:8px;
+  background:rgba(245,165,36,.07);
+  border:1px solid rgba(245,165,36,.18);
+  color:var(--c-text-dim);
+  font-size:12px;
+}
+.learning-goal strong{color:var(--c-amber)}
+
+@media (max-width: 720px){
+  .learning-progress{display:none}
+  .route-banner{margin:10px 12px 0;padding:10px 12px}
+  .route-status{font-size:10px}
+}

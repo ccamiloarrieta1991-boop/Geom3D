@@ -12,10 +12,21 @@
 class Lab3DViewport {
   constructor(canvas) {
     this.canvas = canvas;
+    if (!window.THREE) {
+      throw new Error('Three.js no está disponible. La vista 3D no puede iniciarse.');
+    }
+    try {
+      const test = document.createElement('canvas');
+      const gl = test.getContext('webgl') || test.getContext('experimental-webgl');
+      if (!gl) throw new Error('WebGL no está disponible en este dispositivo o navegador.');
+    } catch (err) {
+      throw new Error(err.message || 'WebGL no está disponible.');
+    }
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    this.renderer.localClippingEnabled = true;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
     const key = new THREE.DirectionalLight(0xffffff, 0.9);
@@ -36,12 +47,18 @@ class Lab3DViewport {
     this.mesh = null;
     this.edges = null;
     this.vertices = null;
+    this.formation = { stage: 4, target: 4, playing: false, raf: 0, start: 0, from: 4, duration: 900 };
+    this.formationPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
 
     this.controls = new SimpleOrbitControls(this.camera, canvas);
     this.controls.reset(18, Math.PI / 4, Math.PI / 2.6);
 
-    this._resizeObserver = new ResizeObserver(() => this.resize());
-    this._resizeObserver.observe(canvas.parentElement);
+    if (window.ResizeObserver) {
+      this._resizeObserver = new ResizeObserver(() => this.resize());
+      this._resizeObserver.observe(canvas.parentElement);
+    } else {
+      window.addEventListener('resize', () => this.resize(), { passive: true });
+    }
     this.resize();
   }
 
@@ -60,20 +77,26 @@ class Lab3DViewport {
     if (this.vertices) { this.scene.remove(this.vertices); this.vertices.geometry.dispose(); }
 
     geometry.center();
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox;
+    this._formationHeight = Math.max(1, (box?.max.y || 0) - (box?.min.y || 0));
+    this.formationType = (ExploreState?.solidDef?.id === 'esfera' || CalcState?.solidDef?.id === 'esfera') ? 'sphere' : 'solid';
+
     this.mesh = new THREE.Mesh(geometry, this.material);
     this.scene.add(this.mesh);
 
     const edgeGeo = new THREE.EdgesGeometry(geometry);
-    this.edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x0a121f, linewidth: 1 }));
+    this.edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x0a121f, linewidth: 1, clipping: true }));
     this.scene.add(this.edges);
 
     const vertGeo = new THREE.BufferGeometry();
     vertGeo.setAttribute('position', geometry.attributes.position.clone());
-    this.vertices = new THREE.Points(vertGeo, new THREE.PointsMaterial({ color: 0xf5a524, size: 0.35, sizeAttenuation: true }));
+    this.vertices = new THREE.Points(vertGeo, new THREE.PointsMaterial({ color: 0xf5a524, size: 0.35, sizeAttenuation: true, clipping: true }));
     this.scene.add(this.vertices);
 
     this.applyViewOptions();
     this._fitCameraDistance(geometry);
+    this.setFormationStage(0);
   }
 
   _fitCameraDistance(geometry) {
@@ -95,6 +118,82 @@ class Lab3DViewport {
     }
   }
 
+  setFormationStage(stage) {
+    const s = Math.max(0, Math.min(4, Number(stage)));
+    this.formation.stage = s;
+    this.formation.target = s;
+    this.formation.playing = false;
+    this._applyFormationVisual(s);
+  }
+
+  _applyFormationVisual(stage) {
+    if (!this.mesh) return;
+    const t = Math.max(0, Math.min(1, stage / 4));
+    const isSphere = this.formationType === 'sphere';
+
+    if (isSphere) {
+      // A sphere has no base to extrude: it grows radially from its centre.
+      const scale = 0.05 + 0.95 * t;
+      this.mesh.scale.setScalar(scale);
+      if (this.edges) this.edges.scale.setScalar(scale);
+      if (this.vertices) this.vertices.scale.setScalar(scale);
+      this.mesh.position.y = 0;
+      if (this.edges) this.edges.position.y = 0;
+      if (this.vertices) this.vertices.position.y = 0;
+      this._setFormationClipping(false);
+    } else {
+      // For solids with a base, reveal the real geometry from the base upward.
+      // This makes the construction visually correspond to extrusion/closure
+      // instead of merely shrinking the finished solid.
+      this.mesh.scale.set(1, 1, 1);
+      if (this.edges) this.edges.scale.set(1, 1, 1);
+      if (this.vertices) this.vertices.scale.set(1, 1, 1);
+      const h = this._formationHeight || 10;
+      const bottom = -h / 2;
+      const revealedTop = bottom + h * t;
+      this.formationPlane.constant = revealedTop;
+      this._setFormationClipping(true);
+    }
+
+    const opacity = t < 0.02 ? 0.18 : 0.18 + 0.82 * Math.min(1, t + 0.08);
+    this.material.transparent = t < 0.99;
+    this.material.opacity = opacity;
+  }
+
+  _setFormationClipping(enabled) {
+    const planes = enabled ? [this.formationPlane] : [];
+    if (this.material) this.material.clippingPlanes = planes;
+    if (this.edges?.material) this.edges.material.clippingPlanes = planes;
+    if (this.vertices?.material) this.vertices.material.clippingPlanes = planes;
+  }
+
+  animateFormationTo(target, duration = 1100) {
+    target = Math.max(0, Math.min(4, Number(target)));
+    if (!this.mesh) return;
+    this.formation.from = this.formation.stage;
+    this.formation.target = target;
+    this.formation.start = performance.now();
+    this.formation.duration = duration;
+    this.formation.playing = true;
+  }
+
+  playFormation() {
+    const next = this.formation.stage >= 4 ? 0 : Math.min(4, Math.floor(this.formation.stage) + 1);
+    this.animateFormationTo(next);
+  }
+
+  updateFormation(now) {
+    if (!this.formation.playing) return;
+    const p = Math.min(1, (now - this.formation.start) / this.formation.duration);
+    const eased = 1 - Math.pow(1 - p, 3);
+    const value = this.formation.from + (this.formation.target - this.formation.from) * eased;
+    this.formation.stage = value;
+    this._applyFormationVisual(value);
+    if (p >= 1) this.formation.playing = false;
+  }
+
+  resetFormation() { this.setFormationStage(0); }
+
   resetView() {
     this.controls.reset(this.controls.radius, Math.PI / 4, Math.PI / 2.6);
   }
@@ -105,10 +204,23 @@ class Lab3DViewport {
   }
 }
 
+function show3DFallback(canvas, err) {
+  const wrap = canvas?.parentElement;
+  if (!wrap) return;
+  wrap.classList.add('is-3d-unavailable');
+  let box = wrap.querySelector('.three-fallback');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'three-fallback';
+    wrap.appendChild(box);
+  }
+  box.innerHTML = `<strong>Vista 3D no disponible</strong><span>${err?.message || 'No se pudo iniciar el motor gráfico.'}</span><small>Los cálculos y actividades pueden continuar. Abre 🩺 Diagnóstico para revisar el problema.</small>`;
+}
+
 /* ---------- Shared render loop ---------- */
 const activeViewports = new Set();
-function rafLoop() {
-  activeViewports.forEach((vp) => vp.render());
+function rafLoop(now) {
+  activeViewports.forEach((vp) => { vp.updateFormation(now); vp.render(); });
   requestAnimationFrame(rafLoop);
 }
 requestAnimationFrame(rafLoop);
@@ -156,8 +268,14 @@ function selectExploreSolid(solidDef) {
   document.getElementById('status-right').textContent = `Sólido activo: ${solidDef.name}`;
 
   if (!ExploreState.viewport) {
-    ExploreState.viewport = new Lab3DViewport(document.getElementById('canvas-explore'));
-    activeViewports.add(ExploreState.viewport);
+    try {
+      ExploreState.viewport = new Lab3DViewport(document.getElementById('canvas-explore'));
+      activeViewports.add(ExploreState.viewport);
+    } catch (err) {
+      show3DFallback(document.getElementById('canvas-explore'), err);
+      window.GEOM3D_DIAG?.add('error', 'No se pudo iniciar la vista 3D', err.message);
+      return;
+    }
   }
   rebuildExploreGeometry();
 
@@ -170,6 +288,7 @@ function selectExploreSolid(solidDef) {
     () => ExploreState.viewport.resetView()
   );
   renderToolButtons(document.getElementById('explore-tools'), ExploreState.viewport);
+  setupFormationControls();
 
   document.getElementById('explore-components').hidden = true;
   updateExploreHud();
@@ -203,6 +322,55 @@ function renderToolButtons(container, viewport) {
   resetBtn.addEventListener('click', () => viewport.resetView());
   container.appendChild(zoomOut); container.appendChild(resetBtn); container.appendChild(zoomIn);
 }
+
+function formationInfo(solid) {
+  const family = (solid?.family || '').toLowerCase();
+  if (family.includes('pirám') || family.includes('tetra') || family.includes('octa')) return {
+    explain: 'Una base define la figura; después aparecen las caras que convergen para formar el vértice.',
+    steps: ['Preparar la base', 'Iniciar la construcción', 'Levantar el cuerpo', 'Cerrar el sólido']
+  };
+  if (family.includes('cilind') || family.includes('cono')) return {
+    explain: 'Partimos de una figura circular y observamos cómo la extensión en altura genera el cuerpo.',
+    steps: ['Preparar la base', 'Iniciar la extensión', 'Extender en altura', 'Completar el sólido']
+  };
+  if (family.includes('esfer')) return {
+    explain: 'La figura se expande alrededor de su centro hasta alcanzar su forma esférica completa.',
+    steps: ['Marcar el centro', 'Iniciar la expansión', 'Expandir la superficie', 'Completar la esfera']
+  };
+  return {
+    explain: 'Una base plana se extiende en una dirección para construir el cuerpo tridimensional.',
+    steps: ['Preparar la base', 'Iniciar la extensión', 'Extender en altura', 'Completar el sólido']
+  };
+}
+
+function setupFormationControls() {
+  const viewport = ExploreState.viewport;
+  const solid = ExploreState.solidDef;
+  if (!viewport || !solid) return;
+  const info = formationInfo(solid);
+  document.getElementById('formation-explain').textContent = info.explain;
+  const stageEl = document.getElementById('formation-stage');
+  const bar = document.getElementById('formation-progress-bar');
+  const update = () => {
+    const stage = Math.round(viewport.formation.stage);
+    const idx = Math.max(0, Math.min(3, stage - 1));
+    const labels = ['Listo para comenzar', ...info.steps];
+    stageEl.textContent = stage === 0 ? labels[0] : `Paso ${stage} · ${labels[idx + 1] || labels[labels.length - 1]}`;
+    bar.style.width = `${Math.round((viewport.formation.stage / 4) * 100)}%`;
+    document.getElementById('btn-formation-play').textContent = viewport.formation.playing ? '⏸ Construyendo…' : (stage >= 4 ? '▶ Repetir' : '▶ Construir');
+  };
+  document.getElementById('btn-formation-play').onclick = () => { viewport.playFormation(); update(); };
+  document.getElementById('btn-formation-next').onclick = () => { viewport.animateFormationTo(Math.min(4, Math.ceil(viewport.formation.stage) + 1)); update(); };
+  document.getElementById('btn-formation-prev').onclick = () => { viewport.animateFormationTo(Math.max(0, Math.floor(viewport.formation.stage) - 1)); update(); };
+  document.getElementById('btn-formation-reset').onclick = () => { viewport.resetFormation(); update(); };
+  update();
+  if (!viewport._formationUiLoop) {
+    viewport._formationUiLoop = true;
+    const tick = () => { update(); requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }
+}
+
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-descomponer').addEventListener('click', () => {
@@ -242,8 +410,14 @@ function selectCalculateSolid(solidDef, fromExplore) {
   }
 
   if (!CalcState.viewport) {
-    CalcState.viewport = new Lab3DViewport(document.getElementById('canvas-calculate'));
-    activeViewports.add(CalcState.viewport);
+    try {
+      CalcState.viewport = new Lab3DViewport(document.getElementById('canvas-calculate'));
+      activeViewports.add(CalcState.viewport);
+    } catch (err) {
+      show3DFallback(document.getElementById('canvas-calculate'), err);
+      window.GEOM3D_DIAG?.add('error', 'No se pudo iniciar la vista 3D', err.message);
+      return;
+    }
   }
   rebuildCalcGeometry();
 
@@ -418,9 +592,15 @@ function setExploreMode(mode) {
 
 function initRevolutionLab() {
   if (!RevolutionState.viewport) {
-    RevolutionState.viewport = new Lab3DViewport(document.getElementById('canvas-revolution'));
-    activeViewports.add(RevolutionState.viewport);
-    RevolutionState.viewport.material.color.set(0x2fb7ff);
+    try {
+      RevolutionState.viewport = new Lab3DViewport(document.getElementById('canvas-revolution'));
+      activeViewports.add(RevolutionState.viewport);
+      RevolutionState.viewport.material.color.set(0x2fb7ff);
+    } catch (err) {
+      show3DFallback(document.getElementById('canvas-revolution'), err);
+      window.GEOM3D_DIAG?.add('error', 'No se pudo iniciar revolución 3D', err.message);
+      return;
+    }
   }
   renderRevolutionPresetChips();
   rebuildRevolutionGeometry();
@@ -628,8 +808,14 @@ function switchMethod(id) {
 
 function setupLiquidMethod() {
   if (!CheckState.liquidViewport) {
-    CheckState.liquidViewport = new Lab3DViewport(document.getElementById('canvas-liquid'));
-    activeViewports.add(CheckState.liquidViewport);
+    try {
+      CheckState.liquidViewport = new Lab3DViewport(document.getElementById('canvas-liquid'));
+      activeViewports.add(CheckState.liquidViewport);
+    } catch (err) {
+      show3DFallback(document.getElementById('canvas-liquid'), err);
+      window.GEOM3D_DIAG?.add('error', 'No se pudo iniciar experimento de líquido', err.message);
+      return;
+    }
   }
   if (CheckState.liquidFillState) { disposeLiquidFill(CheckState.liquidViewport, CheckState.liquidFillState); CheckState.liquidFillState = null; }
   const geo = CheckState.solidDef.builder(CheckState.dims);
@@ -644,8 +830,14 @@ function setupLiquidMethod() {
 
 function setupCubesMethod() {
   if (!CheckState.cubesViewport) {
-    CheckState.cubesViewport = new Lab3DViewport(document.getElementById('canvas-cubes'));
-    activeViewports.add(CheckState.cubesViewport);
+    try {
+      CheckState.cubesViewport = new Lab3DViewport(document.getElementById('canvas-cubes'));
+      activeViewports.add(CheckState.cubesViewport);
+    } catch (err) {
+      show3DFallback(document.getElementById('canvas-cubes'), err);
+      window.GEOM3D_DIAG?.add('error', 'No se pudo iniciar experimento de cubos', err.message);
+      return;
+    }
   }
   if (CheckState.unitCubesInst) { disposeUnitCubes(CheckState.cubesViewport, CheckState.unitCubesInst); CheckState.unitCubesInst = null; }
   const geo = CheckState.solidDef.builder(CheckState.dims);
@@ -743,6 +935,9 @@ function wireTopbarModals() {
   document.getElementById('btn-open-teacher').addEventListener('click', () => {
     openModal('Panel del docente', renderTeacherModalBody);
   });
+  document.getElementById('btn-open-diagnostics')?.addEventListener('click', () => {
+    openModal('Diagnóstico técnico', renderDiagnosticsModalBody);
+  });
 }
 
 function renderProgressModalBody(body) {
@@ -762,6 +957,26 @@ function renderProgressModalBody(body) {
     grid.appendChild(item);
   });
   body.appendChild(grid);
+}
+
+function renderDiagnosticsModalBody(body) {
+  const d = window.GEOM3D_DIAG?.summary?.() || {};
+  const list = window.GEOM3D_DIAG?.issues || [];
+  const state = State.get('phase') || 'explore';
+  body.innerHTML = `
+    <div class="diagnostic-grid">
+      <div><span>Versión</span><strong>${d.version || '—'}</strong></div>
+      <div><span>Conexión</span><strong>${d.online ? 'En línea' : 'Sin conexión'}</strong></div>
+      <div><span>Three.js</span><strong>${d.three ? 'OK' : 'FALTA'}</strong></div>
+      <div><span>WebGL</span><strong>${d.webgl ? 'OK' : 'NO DISPONIBLE'}</strong></div>
+      <div><span>Almacenamiento</span><strong>${d.localStorage ? 'OK' : 'BLOQUEADO'}</strong></div>
+      <div><span>Fase actual</span><strong>${state}</strong></div>
+    </div>
+    <h3 style="margin-top:16px;font-size:12px;text-transform:uppercase;color:var(--c-text-dim);">Eventos detectados (${list.length})</h3>
+    <div class="diagnostic-list">${list.length ? list.slice(-12).reverse().map(x => `<div class="diag-item diag-${x.type}"><b>${x.type.toUpperCase()}</b><span>${x.message}</span><small>${x.detail || ''}</small></div>`).join('') : '<p style="color:var(--c-text-faint)">No se han detectado errores durante esta sesión.</p>'}</div>
+    <button class="btn btn--ghost btn--sm" id="btn-clear-diagnostics" style="margin-top:12px">Limpiar diagnóstico</button>
+  `;
+  body.querySelector('#btn-clear-diagnostics').addEventListener('click', () => { window.GEOM3D_DIAG?.clear(); closeModal(); openModal('Diagnóstico técnico', renderDiagnosticsModalBody); });
 }
 
 function renderTeacherModalBody(body) {
@@ -812,3 +1027,85 @@ function renderTeacherModalBody(body) {
     }
   });
 }
+
+
+/* ============================================================
+   CAPA PEDAGÓGICA — Ruta de aprendizaje
+   Mantiene visible el propósito de cada etapa y evita que la
+   aplicación se perciba como tres herramientas desconectadas.
+   ============================================================ */
+const LearningRoute = {
+  phaseMeta: {
+    explore: {
+      title: 'Observa → manipula → explica',
+      subtitle: 'Comienza con un sólido: descubre qué dimensiones lo construyen.',
+      step: 1
+    },
+    calculate: {
+      title: 'Mide → relaciona → calcula',
+      subtitle: 'Convierte las dimensiones del modelo en un resultado matemático.',
+      step: 2
+    },
+    check: {
+      title: 'Calcula → experimenta → comprueba',
+      subtitle: 'Verifica que tu resultado coincide con una medición del mundo físico.',
+      step: 3
+    }
+  },
+
+  update(phase) {
+    const meta = this.phaseMeta[phase] || this.phaseMeta.explore;
+    const title = document.getElementById('route-title');
+    const subtitle = document.getElementById('route-subtitle');
+    const status = document.getElementById('route-status');
+    if (title) title.textContent = meta.title;
+    if (subtitle) subtitle.textContent = meta.subtitle;
+    if (status) status.textContent = `${meta.step} / 3 etapas`;
+
+    document.querySelectorAll('.progress-dot').forEach(dot => {
+      const step = this.phaseMeta[dot.dataset.step]?.step || 1;
+      dot.classList.toggle('is-active', step === meta.step);
+      dot.classList.toggle('is-done', step < meta.step);
+    });
+
+    const left = document.getElementById('status-left');
+    if (left) left.textContent = `GEOM3D · Ruta ${meta.step}/3 · ${meta.title}`;
+  },
+
+  announceSolid(name, phase) {
+    const subtitle = document.getElementById('route-subtitle');
+    if (subtitle && name) {
+      const action = phase === 'explore'
+        ? 'Explora sus dimensiones y su estructura.'
+        : phase === 'calculate'
+          ? 'Resuelve antes de pedir el procedimiento.'
+          : 'Comprueba su volumen con un experimento.';
+      subtitle.textContent = `${name}: ${action}`;
+    }
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  LearningRoute.update(State.get('phase') || 'explore');
+
+  document.addEventListener('geom3d:phasechange', (e) => {
+    LearningRoute.update(e.detail.phase);
+  });
+
+  const originalExplore = window.selectExploreSolid;
+  const originalCalculate = window.selectCalculateSolid;
+  // Functions are lexical in this file, so the route is also updated
+  // directly from the selection buttons below.
+  document.addEventListener('click', (e) => {
+    const card = e.target.closest('#catalog-explore .solid-card');
+    if (card) {
+      const name = card.querySelector('.name')?.textContent;
+      if (name) LearningRoute.announceSolid(name, 'explore');
+    }
+    const calcCard = e.target.closest('#catalog-calculate .solid-card');
+    if (calcCard) {
+      const name = calcCard.querySelector('.name')?.textContent;
+      if (name) LearningRoute.announceSolid(name, 'calculate');
+    }
+  });
+});

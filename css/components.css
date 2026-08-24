@@ -487,3 +487,32 @@
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
+
+/* Diagnóstico y fallback 3D */
+.viewport-wrap.is-3d-unavailable { display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg, rgba(10,18,31,.96), rgba(19,35,51,.96)); }
+.viewport-wrap.is-3d-unavailable canvas { display:none; }
+.three-fallback { max-width:330px; padding:22px; display:flex; flex-direction:column; gap:8px; text-align:center; color:var(--c-text); }
+.three-fallback strong { color:var(--c-amber); font-size:16px; }
+.three-fallback span { color:var(--c-text-dim); font-size:13px; line-height:1.5; }
+.three-fallback small { color:var(--c-text-faint); font-size:11px; line-height:1.45; }
+.diagnostic-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.diagnostic-grid > div { padding:10px; border:1px solid var(--c-border); border-radius:8px; background:rgba(255,255,255,.025); }
+.diagnostic-grid span,.diagnostic-grid strong { display:block; }
+.diagnostic-grid span { font-size:10px; text-transform:uppercase; color:var(--c-text-faint); }
+.diagnostic-grid strong { margin-top:4px; font-family:var(--f-mono); font-size:12px; }
+.diagnostic-list { display:flex; flex-direction:column; gap:6px; max-height:230px; overflow:auto; }
+.diag-item { display:grid; grid-template-columns:58px 1fr; gap:5px; padding:8px; border-radius:7px; background:rgba(255,255,255,.025); font-size:11px; }
+.diag-item b { font-family:var(--f-mono); font-size:9px; }
+.diag-item small { grid-column:2; color:var(--c-text-faint); overflow-wrap:anywhere; }
+.diag-error b { color:var(--c-amber); }
+.diag-warning b { color:var(--c-amber); }
+.diag-info b { color:var(--c-teal); }
+
+/* ---------- Formación dinámica del sólido ---------- */
+.formation-panel { position: relative; overflow: hidden; }
+.formation-explain { font-size: 12px; line-height: 1.45; margin-bottom: 10px; }
+.formation-stage { font-weight:600; font-family: var(--f-mono); font-size: 11px; color: var(--c-amber); margin-bottom: 7px; }
+.formation-progress { height: 6px; background: var(--c-line); border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+.formation-progress span { display:block; width:0%; height:100%; background: linear-gradient(90deg,var(--c-teal),var(--c-amber)); transition: width .15s ease; }
+.formation-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.formation-actions .btn { flex: 1 1 auto; min-width: 42px; }
