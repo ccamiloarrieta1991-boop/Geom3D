@@ -16,11 +16,11 @@ const BADGES = [
     return totalAttempts >= 15;
   } },
   { id: 'experimentador', name: 'Experimentador', icon: '🏆', test: (p) => Object.keys(p.experiment || {}).length >= 3 },
-  { id: 'geometra', name: 'Geómetra', icon: '🏆', test: (p) => Object.keys(p.explore || {}).length >= 13 && Object.keys(p.calculate || {}).length >= 13 },
+  { id: 'geometra', name: 'Geómetra', icon: '🏆', test: (p) => Object.keys(p.explore || {}).length >= SOLIDS_CATALOG.length && Object.keys(p.calculate || {}).length >= SOLIDS_CATALOG.length },
 ];
 
 function totalSolidsCount() {
-  return SOLIDS_CATALOG.filter((s) => !s.locked).length;
+  return SOLIDS_CATALOG.length;
 }
 
 function computeProgress() {

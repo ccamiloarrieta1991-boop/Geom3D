@@ -54,10 +54,15 @@ const REVOLUTION_PRESETS = {
   },
 };
 
-/** Builds a LatheGeometry for the given preset, revealed from 0 up to `angleRad`. */
-function buildRevolutionGeometry(presetId, angleRad) {
+/**
+ * Construye la LatheGeometry del preset, revelada de 0 hasta `angleRad`.
+ * `dims` son las dimensiones reales del sólido seleccionado, de modo que
+ * la revolución responde a los deslizadores del estudiante.
+ */
+function buildRevolutionGeometry(presetId, angleRad, dims) {
   const preset = REVOLUTION_PRESETS[presetId];
-  const { r, h } = preset.dims;
+  const r = (dims && dims.radio !== undefined) ? dims.radio : preset.dims.r;
+  const h = (dims && dims.altura !== undefined) ? dims.altura : preset.dims.h;
   const points = preset.profile(r, h);
   const clampedAngle = Math.max(0.001, Math.min(Math.PI * 2, angleRad));
   return new THREE.LatheGeometry(points, 48, 0, clampedAngle);

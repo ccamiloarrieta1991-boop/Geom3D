@@ -9,14 +9,14 @@
 
 const CONTEXT_TEMPLATES = [
   { object: 'un tanque de agua', solidHint: ['cilindro', 'prisma_rectangular'] },
-  { object: 'una caja de embalaje', solidHint: ['cubo', 'prisma_rectangular'] },
+  { object: 'una caja de embalaje', solidHint: ['prisma_rectangular'] },
   { object: 'un cono de tránsito', solidHint: ['cono'] },
-  { object: 'una carpa de campamento', solidHint: ['piramide_cuadrangular', 'piramide_triangular'] },
+  { object: 'una carpa de campamento', solidHint: ['piramide_cuadrada', 'piramide_triangular'] },
   { object: 'un balón decorativo', solidHint: ['esfera'] },
   { object: 'un vaso o balde', solidHint: ['tronco_cono', 'cilindro'] },
 ];
 
-const INVERSE_SOLVABLE = ['cubo', 'cilindro', 'prisma_rectangular', 'cono'];
+const INVERSE_SOLVABLE = ['cilindro', 'prisma_rectangular', 'cono'];
 
 function randomInRange(min, max, step) {
   const steps = Math.round((max - min) / step);
@@ -40,7 +40,7 @@ function randomDims(solidDef) {
 function generateChallenge(level) {
   if (level === 4) return generateInverseChallenge();
 
-  const pool = SOLIDS_CATALOG.filter((s) => !s.locked);
+  const pool = SOLIDS_CATALOG.slice();
   const solidDef = pickRandom(pool);
   const dims = randomDims(solidDef);
   const quantities = availableQuantities(solidDef.id);
@@ -61,7 +61,7 @@ function generateChallenge(level) {
 
 function buildLevel1Prompt(solidDef, dims, quantity) {
   const dimText = solidDef.dims.map((d) => `${d.label.toLowerCase()} = ${fmt(dims[d.key], 1)} ${d.unit}`).join(', ');
-  return `Construye ${articleFor(solidDef.name)} con ${dimText}. Calcula: ${quantity.label.toLowerCase()}.`;
+  return `Construye ${articleFor(solidDef.shortName)} con ${dimText}. Calcula: ${quantity.label.toLowerCase()}.`;
 }
 
 function buildLevel2Prompt(solidDef, dims, quantity) {
@@ -69,7 +69,7 @@ function buildLevel2Prompt(solidDef, dims, quantity) {
     ? CONTEXT_TEMPLATES.filter((c) => c.solidHint.includes(solidDef.id))
     : CONTEXT_TEMPLATES);
   const dimText = solidDef.dims.map((d) => `${d.label.toLowerCase()} de ${fmt(dims[d.key], 1)} ${d.unit}`).join(' y ');
-  return `Imagina ${ctx.object} con forma de ${solidDef.name.toLowerCase()}, con ${dimText}. ¿Cuál es ${quantity.label.toLowerCase()}?`;
+  return `Imagina ${ctx.object} con forma de ${solidDef.shortName.toLowerCase()}, con ${dimText}. ¿Cuál es ${quantity.label.toLowerCase()}?`;
 }
 
 function buildLevel3Prompt(solidDef, dims, quantity) {
@@ -82,7 +82,7 @@ function buildLevel3Prompt(solidDef, dims, quantity) {
   const boundedDerived = Math.min(d1.max, Math.max(d1.min, derived));
   dims[d1.key] = boundedDerived;
   const restDims = solidDef.dims.slice(2).map((d) => `${d.label.toLowerCase()} = ${fmt(dims[d.key], 1)} ${d.unit}`).join(', ');
-  return `${articleFor(solidDef.name)} tiene ${d0.label.toLowerCase()} = ${fmt(dims[d0.key], 1)} ${d0.unit}, y su ${d1.label.toLowerCase()} es el doble de ${d0.label.toLowerCase().replace('del ', '').replace('de la ', '').replace('de ', '')}.${restDims ? ' Además, ' + restDims + '.' : ''} Calcula: ${quantity.label.toLowerCase()}.`;
+  return `${articleFor(solidDef.shortName)} tiene ${d0.label.toLowerCase()} = ${fmt(dims[d0.key], 1)} ${d0.unit}, y su ${d1.label.toLowerCase()} es el doble de ${d0.label.toLowerCase().replace('del ', '').replace('de la ', '').replace('de ', '')}.${restDims ? ' Además, ' + restDims + '.' : ''} Calcula: ${quantity.label.toLowerCase()}.`;
 }
 
 function generateInverseChallenge() {
@@ -92,11 +92,7 @@ function generateInverseChallenge() {
 
   let targetDimKey, promptText, answerValue;
 
-  if (solidDef.id === 'cubo') {
-    targetDimKey = 'lado';
-    answerValue = dims.lado;
-    promptText = `El volumen de un cubo es ${fmt(targetVolume)} cm³. Determina la medida de su lado.`;
-  } else if (solidDef.id === 'cilindro') {
+  if (solidDef.id === 'cilindro') {
     targetDimKey = 'radio';
     answerValue = dims.radio;
     promptText = `El volumen de un cilindro es ${fmt(targetVolume)} cm³ y su altura es ${fmt(dims.altura,1)} cm. Determina aproximadamente el radio.`;

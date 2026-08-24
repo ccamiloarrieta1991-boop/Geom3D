@@ -1,725 +1,507 @@
 /* ============================================================
-   app.js
-   Bootstraps the whole application:
-   - Lab3DViewport: a reusable Three.js scene/camera/renderer
-     wrapper (one instance per phase that needs a 3D canvas).
-   - Catalog rendering for Fase 1 and Fase 2.
-   - Event wiring for dimensions, view options, "Descomponer",
-     and the Fase 2 calculate/check/procedure flow.
+   app.js — GEOM3D
+   Flujo:
+     FASE 1 CONSTRUIR  → asistente de clasificación
+                       → plegado del desarrollo (o revolución)
+                       → elementos + relación de Euler
+     FASE 2 CALCULAR   → predicción → área / volumen → retos
+     FASE 3 COMPROBAR  → líquido / desplazamiento / cubos unitarios
    ============================================================ */
 
-/* ---------- Reusable 3D viewport ---------- */
+/* ============================================================
+   Visor 3D reutilizable
+   ============================================================ */
 class Lab3DViewport {
   constructor(canvas) {
     this.canvas = canvas;
-    if (!window.THREE) {
-      throw new Error('Three.js no está disponible. La vista 3D no puede iniciarse.');
-    }
-    try {
-      const test = document.createElement('canvas');
-      const gl = test.getContext('webgl') || test.getContext('experimental-webgl');
-      if (!gl) throw new Error('WebGL no está disponible en este dispositivo o navegador.');
-    } catch (err) {
-      throw new Error(err.message || 'WebGL no está disponible.');
-    }
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
-
+    this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 300);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    this.renderer.localClippingEnabled = true;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
     const key = new THREE.DirectionalLight(0xffffff, 0.9);
-    key.position.set(8, 12, 10);
+    key.position.set(8, 14, 10);
     const fill = new THREE.DirectionalLight(0x6fd8c8, 0.35);
     fill.position.set(-8, -4, -6);
-    const ambient = new THREE.AmbientLight(0x8fa5c4, 0.55);
-    this.scene.add(key, fill, ambient);
+    this.scene.add(key, fill, new THREE.AmbientLight(0x8fa5c4, 0.6));
 
-    this.material = new THREE.MeshStandardMaterial({
-      color: 0x17bfa8,
-      metalness: 0.15,
-      roughness: 0.45,
-      transparent: false,
-      opacity: 1,
-    });
+    this.material = new THREE.MeshStandardMaterial({ color: 0x17bfa8, metalness: 0.15, roughness: 0.45 });
 
-    this.mesh = null;
-    this.edges = null;
-    this.vertices = null;
-    this.formation = { stage: 4, target: 4, playing: false, raf: 0, start: 0, from: 4, duration: 900 };
-    this.formationPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+    this.mesh = null; this.edges = null; this.customGroup = null;
 
     this.controls = new SimpleOrbitControls(this.camera, canvas);
-    this.controls.reset(18, Math.PI / 4, Math.PI / 2.6);
+    this.controls.reset(22, Math.PI / 4, Math.PI / 2.6);
 
-    if (window.ResizeObserver) {
-      this._resizeObserver = new ResizeObserver(() => this.resize());
-      this._resizeObserver.observe(canvas.parentElement);
-    } else {
-      window.addEventListener('resize', () => this.resize(), { passive: true });
-    }
+    this._ro = new ResizeObserver(() => this.resize());
+    this._ro.observe(canvas.parentElement);
     this.resize();
   }
 
   resize() {
     const el = this.canvas.parentElement;
     const w = el.clientWidth, h = el.clientHeight;
-    if (w === 0 || h === 0) return;
+    if (!w || !h) return;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
 
-  setGeometry(geometry) {
-    if (this.mesh) { this.scene.remove(this.mesh); this.mesh.geometry.dispose(); }
-    if (this.edges) { this.scene.remove(this.edges); this.edges.geometry.dispose(); }
-    if (this.vertices) { this.scene.remove(this.vertices); this.vertices.geometry.dispose(); }
-
-    geometry.center();
-    geometry.computeBoundingBox();
-    const box = geometry.boundingBox;
-    this._formationHeight = Math.max(1, (box?.max.y || 0) - (box?.min.y || 0));
-    this.formationType = (ExploreState?.solidDef?.id === 'esfera' || CalcState?.solidDef?.id === 'esfera') ? 'sphere' : 'solid';
-
-    this.mesh = new THREE.Mesh(geometry, this.material);
-    this.scene.add(this.mesh);
-
-    const edgeGeo = new THREE.EdgesGeometry(geometry);
-    this.edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x0a121f, linewidth: 1, clipping: true }));
-    this.scene.add(this.edges);
-
-    const vertGeo = new THREE.BufferGeometry();
-    vertGeo.setAttribute('position', geometry.attributes.position.clone());
-    this.vertices = new THREE.Points(vertGeo, new THREE.PointsMaterial({ color: 0xf5a524, size: 0.35, sizeAttenuation: true, clipping: true }));
-    this.scene.add(this.vertices);
-
-    this.applyViewOptions();
-    this._fitCameraDistance(geometry);
-    this.setFormationStage(0);
+  clearAll() {
+    [this.mesh, this.edges, this.customGroup].forEach((o) => {
+      if (!o) return;
+      this.scene.remove(o);
+      if (o.traverse) o.traverse((c) => { if (c.geometry) c.geometry.dispose(); });
+      else if (o.geometry) o.geometry.dispose();
+    });
+    this.mesh = this.edges = this.customGroup = null;
   }
 
-  _fitCameraDistance(geometry) {
-    geometry.computeBoundingSphere();
-    const r = geometry.boundingSphere ? geometry.boundingSphere.radius : 6;
-    const dist = Math.max(10, r * 3.2);
-    this.controls.minRadius = dist * 0.4;
-    this.controls.maxRadius = dist * 2.5;
+  setGeometry(geometry) {
+    this.clearAll();
+    geometry.center();
+    this.mesh = new THREE.Mesh(geometry, this.material);
+    this.scene.add(this.mesh);
+    this.edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry),
+      new THREE.LineBasicMaterial({ color: 0x0a121f }));
+    this.scene.add(this.edges);
+    this._fit(geometry);
+  }
+
+  setGroup(group, approxRadius) {
+    this.clearAll();
+    this.customGroup = group;
+    this.scene.add(group);
+    const dist = Math.max(14, approxRadius * 3.2);
+    this.controls.minRadius = dist * 0.35;
+    this.controls.maxRadius = dist * 3;
     this.controls.reset(dist, this.controls.theta, this.controls.phi);
   }
 
-  applyViewOptions() {
-    const opts = State.get('viewOptions');
-    if (this.edges) this.edges.visible = !!opts.edges;
-    if (this.vertices) this.vertices.visible = !!opts.vertices;
-    if (this.material) {
-      this.material.transparent = !!opts.transparency;
-      this.material.opacity = opts.transparency ? 0.38 : 1;
-    }
+  _fit(geometry) {
+    geometry.computeBoundingSphere();
+    const r = geometry.boundingSphere ? geometry.boundingSphere.radius : 6;
+    const dist = Math.max(12, r * 3.2);
+    this.controls.minRadius = dist * 0.35;
+    this.controls.maxRadius = dist * 2.6;
+    this.controls.reset(dist, this.controls.theta, this.controls.phi);
   }
 
-  setFormationStage(stage) {
-    const s = Math.max(0, Math.min(4, Number(stage)));
-    this.formation.stage = s;
-    this.formation.target = s;
-    this.formation.playing = false;
-    this._applyFormationVisual(s);
-  }
-
-  _applyFormationVisual(stage) {
-    if (!this.mesh) return;
-    const t = Math.max(0, Math.min(1, stage / 4));
-    const isSphere = this.formationType === 'sphere';
-
-    if (isSphere) {
-      // A sphere has no base to extrude: it grows radially from its centre.
-      const scale = 0.05 + 0.95 * t;
-      this.mesh.scale.setScalar(scale);
-      if (this.edges) this.edges.scale.setScalar(scale);
-      if (this.vertices) this.vertices.scale.setScalar(scale);
-      this.mesh.position.y = 0;
-      if (this.edges) this.edges.position.y = 0;
-      if (this.vertices) this.vertices.position.y = 0;
-      this._setFormationClipping(false);
-    } else {
-      // For solids with a base, reveal the real geometry from the base upward.
-      // This makes the construction visually correspond to extrusion/closure
-      // instead of merely shrinking the finished solid.
-      this.mesh.scale.set(1, 1, 1);
-      if (this.edges) this.edges.scale.set(1, 1, 1);
-      if (this.vertices) this.vertices.scale.set(1, 1, 1);
-      const h = this._formationHeight || 10;
-      const bottom = -h / 2;
-      const revealedTop = bottom + h * t;
-      this.formationPlane.constant = revealedTop;
-      this._setFormationClipping(true);
-    }
-
-    const opacity = t < 0.02 ? 0.18 : 0.18 + 0.82 * Math.min(1, t + 0.08);
-    this.material.transparent = t < 0.99;
-    this.material.opacity = opacity;
-  }
-
-  _setFormationClipping(enabled) {
-    const planes = enabled ? [this.formationPlane] : [];
-    if (this.material) this.material.clippingPlanes = planes;
-    if (this.edges?.material) this.edges.material.clippingPlanes = planes;
-    if (this.vertices?.material) this.vertices.material.clippingPlanes = planes;
-  }
-
-  animateFormationTo(target, duration = 1100) {
-    target = Math.max(0, Math.min(4, Number(target)));
-    if (!this.mesh) return;
-    this.formation.from = this.formation.stage;
-    this.formation.target = target;
-    this.formation.start = performance.now();
-    this.formation.duration = duration;
-    this.formation.playing = true;
-  }
-
-  playFormation() {
-    const next = this.formation.stage >= 4 ? 0 : Math.min(4, Math.floor(this.formation.stage) + 1);
-    this.animateFormationTo(next);
-  }
-
-  updateFormation(now) {
-    if (!this.formation.playing) return;
-    const p = Math.min(1, (now - this.formation.start) / this.formation.duration);
-    const eased = 1 - Math.pow(1 - p, 3);
-    const value = this.formation.from + (this.formation.target - this.formation.from) * eased;
-    this.formation.stage = value;
-    this._applyFormationVisual(value);
-    if (p >= 1) this.formation.playing = false;
-  }
-
-  resetFormation() { this.setFormationStage(0); }
-
-  resetView() {
-    this.controls.reset(this.controls.radius, Math.PI / 4, Math.PI / 2.6);
-  }
-
-  render() {
-    this.resize();
-    this.renderer.render(this.scene, this.camera);
-  }
+  resetView() { this.controls.reset(this.controls.radius, Math.PI / 4, Math.PI / 2.6); }
+  render() { this.resize(); this.renderer.render(this.scene, this.camera); }
 }
 
-function show3DFallback(canvas, err) {
-  const wrap = canvas?.parentElement;
-  if (!wrap) return;
-  wrap.classList.add('is-3d-unavailable');
-  let box = wrap.querySelector('.three-fallback');
-  if (!box) {
-    box = document.createElement('div');
-    box.className = 'three-fallback';
-    wrap.appendChild(box);
-  }
-  box.innerHTML = `<strong>Vista 3D no disponible</strong><span>${err?.message || 'No se pudo iniciar el motor gráfico.'}</span><small>Los cálculos y actividades pueden continuar. Abre 🩺 Diagnóstico para revisar el problema.</small>`;
-}
-
-/* ---------- Shared render loop ---------- */
 const activeViewports = new Set();
-function rafLoop(now) {
-  activeViewports.forEach((vp) => { vp.updateFormation(now); vp.render(); });
-  requestAnimationFrame(rafLoop);
-}
-requestAnimationFrame(rafLoop);
+(function loop() { activeViewports.forEach((v) => v.render()); requestAnimationFrame(loop); })();
 
 /* ============================================================
-   Catalog rendering (shared between Explorar / Calcular)
+   Sesión de trabajo (el sólido activo atraviesa las 3 fases)
    ============================================================ */
-function renderCatalog(container, onSelect) {
-  container.innerHTML = '';
-  SOLIDS_CATALOG.forEach((s) => {
+const Session = { solidDef: null, dims: null };
+
+function setActiveSolid(solidDef) {
+  Session.solidDef = solidDef;
+  Session.dims = getCurrentDims(solidDef.id);
+  State.set('currentSolidId', solidDef.id);
+  State.markExplored(solidDef.id);
+  document.getElementById('status-right').textContent = `Sólido activo: ${solidDef.name}`;
+}
+
+/* ============================================================
+   FASE 1 · Asistente de clasificación
+   ============================================================ */
+const Wizard = { path: [] };
+
+const WIZARD_STEPS = {
+  root: {
+    question: '¿Qué tipo de cuerpo geométrico quieres estudiar?',
+    hint: 'Los poliedros están formados únicamente por caras planas. Los cuerpos redondos tienen al menos una superficie curva.',
+    choices: () => ([
+      { id: 'poliedro', title: 'Poliedro', glyph: 'cube', desc: 'Caras planas, aristas y vértices. Incluye prismas, pirámides y poliedros regulares.' },
+      { id: 'redondo', title: 'Cuerpo redondo', glyph: 'cylinder', desc: 'Superficies curvas. Se generan girando una figura plana alrededor de un eje.' },
+    ]),
+  },
+  poliedro: {
+    question: '¿Qué clase de poliedro?',
+    hint: 'Un prisma tiene dos bases iguales y paralelas. Una pirámide tiene una sola base, y sus caras laterales se encuentran en un mismo vértice.',
+    choices: () => ([
+      { id: 'prisma', title: 'Prisma', glyph: 'pentaprism', desc: 'Dos bases iguales unidas por caras laterales rectangulares.' },
+      { id: 'piramide', title: 'Pirámide', glyph: 'pyramid', desc: 'Una base y caras laterales triangulares que convergen en el ápice.' },
+      { id: 'regular', title: 'Poliedro regular', glyph: 'octa', desc: 'Todas sus caras son polígonos regulares idénticos: tetraedro, octaedro.' },
+    ]),
+  },
+  prisma: {
+    question: '¿Cuál es la forma de la base?',
+    hint: 'La base determina cuántas caras laterales tendrá el prisma y qué fórmula usarás para calcular su área.',
+    choices: () => solidsByKind('prisma').map((s) => ({
+      id: s.id, title: BASE_SHAPES.find((b) => b.key === s.baseShape).name,
+      glyph: s.glyph, desc: s.facesText, terminal: true,
+    })),
+  },
+  piramide: {
+    question: '¿Cuál es la forma de la base?',
+    hint: 'El número de lados de la base es también el número de caras triangulares que tendrá la pirámide.',
+    choices: () => solidsByKind('piramide').map((s) => ({
+      id: s.id, title: BASE_SHAPES.find((b) => b.key === s.baseShape).name,
+      glyph: s.glyph, desc: s.facesText, terminal: true,
+    })),
+  },
+  regular: {
+    question: '¿Cuál poliedro regular?',
+    hint: 'En un poliedro regular todas las caras son polígonos regulares iguales, y en cada vértice concurre el mismo número de caras.',
+    choices: () => solidsByKind('regular').map((s) => ({
+      id: s.id, title: s.name, glyph: s.glyph, desc: s.facesText, terminal: true,
+    })),
+  },
+  redondo: {
+    question: '¿Qué cuerpo redondo?',
+    hint: 'Cada uno se puede generar girando una figura plana alrededor de un eje — lo verás en el siguiente paso.',
+    choices: () => solidsByGroup('redondo').map((s) => ({
+      id: s.id, title: s.name, glyph: s.glyph, desc: s.facesText, terminal: true,
+    })),
+  },
+};
+
+const STEP_LABELS = {
+  root: 'Inicio', poliedro: 'Poliedro', redondo: 'Cuerpo redondo',
+  prisma: 'Prisma', piramide: 'Pirámide', regular: 'Poliedro regular',
+};
+
+function renderWizard(stepId) {
+  const step = WIZARD_STEPS[stepId];
+  document.getElementById('wizard').hidden = false;
+  document.getElementById('workspace').hidden = true;
+  document.getElementById('explore-title').textContent = '¿Qué cuerpo vamos a estudiar?';
+  document.getElementById('wizard-question').textContent = step.question;
+  document.getElementById('wizard-hint').textContent = step.hint;
+
+  const bc = document.getElementById('wizard-breadcrumb');
+  bc.innerHTML = '';
+  Wizard.path.forEach((p, i) => {
+    const crumb = document.createElement('span');
+    crumb.className = 'crumb';
+    crumb.textContent = STEP_LABELS[p] || p;
+    crumb.addEventListener('click', () => { Wizard.path = Wizard.path.slice(0, i); renderWizard(p); });
+    bc.appendChild(crumb);
+    const sep = document.createElement('span');
+    sep.className = 'sep'; sep.textContent = '›';
+    bc.appendChild(sep);
+  });
+
+  const grid = document.getElementById('wizard-choices');
+  grid.innerHTML = '';
+  step.choices().forEach((c) => {
     const card = document.createElement('button');
     card.type = 'button';
-    card.className = 'solid-card' + (s.locked ? ' locked' : '');
-    card.setAttribute('aria-current', 'false');
-    if (s.locked) {
-      card.disabled = true;
-      card.innerHTML = `<span class="soon-tag">próx.</span><div class="glyph">${glyphSVG(s.glyph)}</div><div class="name">${s.name}</div><div class="family">${s.family}</div>`;
-    } else {
-      card.innerHTML = `<div class="glyph">${glyphSVG(s.glyph)}</div><div class="name">${s.name}</div><div class="family">${s.family}</div>`;
-      card.addEventListener('click', () => {
-        container.querySelectorAll('.solid-card').forEach((c) => c.setAttribute('aria-current', 'false'));
-        card.setAttribute('aria-current', 'true');
-        onSelect(s);
-      });
-    }
-    container.appendChild(card);
+    card.className = 'choice-card';
+    card.innerHTML = `<div class="c-glyph">${glyphSVG(c.glyph)}</div><div class="c-title">${c.title}</div><div class="c-desc">${c.desc}</div>`;
+    card.addEventListener('click', () => {
+      Wizard.path.push(stepId);
+      if (c.terminal) openWorkspace(getSolidDef(c.id));
+      else renderWizard(c.id);
+    });
+    grid.appendChild(card);
   });
 }
 
 /* ============================================================
-   FASE 1 — Explorar
+   FASE 1 · Espacio de trabajo (Construir / Elementos)
    ============================================================ */
-const ExploreState = { viewport: null, solidDef: null, dims: null };
+const Build = { viewport: null, net: null, foldT: 0, playing: false };
+const Elements = { viewport: null, helpers: null };
+let currentWsTab = 'build';
 
-function initExplorePhase() {
-  renderCatalog(document.getElementById('catalog-explore'), selectExploreSolid);
+function openWorkspace(solidDef) {
+  setActiveSolid(solidDef);
+  document.getElementById('wizard').hidden = true;
+  document.getElementById('workspace').hidden = false;
+  document.getElementById('explore-title').textContent = solidDef.name;
+  currentWsTab = 'build';
+  renderWsTabs();
+  setupBuildPanel();
+  switchWsTab('build');
 }
 
-function selectExploreSolid(solidDef) {
-  ExploreState.solidDef = solidDef;
-  ExploreState.dims = getCurrentDims(solidDef.id);
-
-  document.getElementById('explore-lab').hidden = false;
-  document.getElementById('explore-solid-name').textContent = solidDef.name;
-  document.getElementById('status-right').textContent = `Sólido activo: ${solidDef.name}`;
-
-  if (!ExploreState.viewport) {
-    try {
-      ExploreState.viewport = new Lab3DViewport(document.getElementById('canvas-explore'));
-      activeViewports.add(ExploreState.viewport);
-    } catch (err) {
-      show3DFallback(document.getElementById('canvas-explore'), err);
-      window.GEOM3D_DIAG?.add('error', 'No se pudo iniciar la vista 3D', err.message);
-      return;
-    }
-  }
-  rebuildExploreGeometry();
-
-  renderDimensionPanel(document.getElementById('explore-dims'), solidDef, ExploreState.dims, () => {
-    rebuildExploreGeometry();
-    updateExploreHud();
+function renderWsTabs() {
+  const isRound = Session.solidDef.group === 'redondo';
+  const tabs = [
+    { id: 'build', label: isRound ? '① Generar por revolución' : '① Plegar el desarrollo' },
+    { id: 'elements', label: '② Caras, vértices y aristas' },
+  ];
+  const c = document.getElementById('ws-tabs');
+  c.innerHTML = '';
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.textContent = '← Cambiar de sólido';
+  back.addEventListener('click', () => { Wizard.path = []; renderWizard('root'); });
+  c.appendChild(back);
+  tabs.forEach((t) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = t.label;
+    b.setAttribute('aria-current', String(currentWsTab === t.id));
+    b.addEventListener('click', () => switchWsTab(t.id));
+    c.appendChild(b);
   });
-  renderViewOptionsPanel(document.getElementById('explore-viewopts'),
-    (key) => { State.set(`viewOptions.${key}`, !State.get(`viewOptions.${key}`)); ExploreState.viewport.applyViewOptions(); },
-    () => ExploreState.viewport.resetView()
-  );
-  renderToolButtons(document.getElementById('explore-tools'), ExploreState.viewport);
-  setupFormationControls();
-
-  document.getElementById('explore-components').hidden = true;
-  updateExploreHud();
-  State.markExplored(solidDef.id);
 }
 
-function rebuildExploreGeometry() {
-  const geo = ExploreState.solidDef.builder(ExploreState.dims);
-  ExploreState.viewport.setGeometry(geo);
+function switchWsTab(id) {
+  currentWsTab = id;
+  document.getElementById('ws-build').setAttribute('data-active', String(id === 'build'));
+  document.getElementById('ws-elements').setAttribute('data-active', String(id === 'elements'));
+  renderWsTabs();
+  if (id === 'elements') setupElementsPanel();
+  requestAnimationFrame(() => {
+    if (Build.viewport) Build.viewport.resize();
+    if (Elements.viewport) Elements.viewport.resize();
+  });
 }
 
-function updateExploreHud() {
-  const hud = document.getElementById('explore-hud');
-  const d = ExploreState.dims;
-  hud.innerHTML = Object.entries(d).map(([k, v]) => {
-    const dimDef = ExploreState.solidDef.dims.find((x) => x.key === k);
-    return `<div><span class="hud-label">${dimDef.label}:</span> ${fmt(v, 1)} ${dimDef.unit}</div>`;
-  }).join('');
+/* ---------- Construir: plegado o revolución ---------- */
+function setupBuildPanel() {
+  if (!Build.viewport) {
+    Build.viewport = new Lab3DViewport(document.getElementById('canvas-build'));
+    activeViewports.add(Build.viewport);
+    renderToolButtons(document.getElementById('build-tools'), Build.viewport);
+  }
+  const def = Session.solidDef;
+  document.getElementById('build-solid-name').textContent = def.name;
+
+  const isRound = def.group === 'redondo';
+  document.getElementById('fold-title').textContent = isRound ? 'Generar por revolución' : 'Plegar el desarrollo';
+  document.getElementById('fold-desc').textContent = isRound
+    ? (def.revolutionPreset
+        ? 'Mueve el control para girar la figura plana alrededor del eje y observa cómo se genera el sólido.'
+        : 'Este cuerpo se obtiene al cortar un cono con un plano paralelo a la base. Ajusta sus dimensiones para explorarlo.')
+    : 'Mueve el control para cerrar el desarrollo plano y formar el sólido. Observa en qué se convierte cada cara.';
+  document.getElementById('fold-label-a').textContent = isRound ? '0°' : 'Plano';
+  document.getElementById('fold-label-b').textContent = isRound ? '360°' : 'Sólido';
+
+  const slider = document.getElementById('fold-slider');
+  const canAnimate = !isRound || !!def.revolutionPreset;
+  slider.disabled = !canAnimate;
+  document.getElementById('btn-fold-play').disabled = !canAnimate;
+  slider.value = canAnimate ? 0 : 100;
+  Build.foldT = canAnimate ? 0 : 1;
+
+  renderDimensionPanel(document.getElementById('build-dims'), def, Session.dims, () => {
+    rebuildBuild(); updateBuildHud();
+  });
+  document.getElementById('build-faces').innerHTML =
+    `<h3>De qué está formado</h3><p style="font-size:12.5px; margin:0;">${def.facesText}.</p>`;
+  rebuildBuild();
+  updateBuildHud();
+  updateFoldReadout(Build.foldT);
+}
+
+function rebuildBuild() {
+  const def = Session.solidDef;
+  if (def.group === 'redondo') {
+    if (def.revolutionPreset) {
+      Build.viewport.setGeometry(buildRevolutionGeometry(def.revolutionPreset, Build.foldT * Math.PI * 2, Session.dims));
+    } else {
+      Build.viewport.setGeometry(def.builder(Session.dims));
+    }
+    return;
+  }
+  const net = buildFoldableNet(def, Session.dims);
+  Build.net = net;
+  const maxDim = Math.max(...Object.values(Session.dims));
+  Build.viewport.setGroup(net.group, maxDim * 1.8);
+  net.setFold(Build.foldT);
+}
+
+function updateFoldReadout(t) {
+  const isRound = Session.solidDef.group === 'redondo';
+  document.getElementById('fold-readout').textContent =
+    isRound ? `${Math.round(t * 360)}°` : `${Math.round(t * 100)}%`;
+  const label = document.getElementById('fold-stage-label');
+  if (isRound) label.textContent = t === 0 ? 'Figura plana' : t >= 0.999 ? 'Sólido completo' : 'Generando…';
+  else label.textContent = t === 0 ? 'Desarrollo plano' : t >= 0.999 ? 'Sólido formado' : 'Plegando…';
+}
+
+function updateBuildHud() {
+  document.getElementById('build-hud').innerHTML = Session.solidDef.dims.map((d) =>
+    `<div><span class="hud-label">${d.label}:</span> ${fmt(Session.dims[d.key], 1)} ${d.unit}</div>`).join('');
 }
 
 function renderToolButtons(container, viewport) {
   container.innerHTML = '';
-  const zoomIn = document.createElement('button');
-  zoomIn.className = 'icon-btn'; zoomIn.textContent = '+'; zoomIn.title = 'Acercar';
-  zoomIn.addEventListener('click', () => { viewport.controls.radius = Math.max(viewport.controls.minRadius, viewport.controls.radius - 2); viewport.controls.update(); });
-  const zoomOut = document.createElement('button');
-  zoomOut.className = 'icon-btn'; zoomOut.textContent = '−'; zoomOut.title = 'Alejar';
-  zoomOut.addEventListener('click', () => { viewport.controls.radius = Math.min(viewport.controls.maxRadius, viewport.controls.radius + 2); viewport.controls.update(); });
-  const resetBtn = document.createElement('button');
-  resetBtn.className = 'icon-btn'; resetBtn.textContent = '⟲'; resetBtn.title = 'Reiniciar vista';
-  resetBtn.addEventListener('click', () => viewport.resetView());
-  container.appendChild(zoomOut); container.appendChild(resetBtn); container.appendChild(zoomIn);
+  const mk = (txt, title, fn) => {
+    const b = document.createElement('button');
+    b.className = 'icon-btn'; b.textContent = txt; b.title = title;
+    b.addEventListener('click', fn); container.appendChild(b);
+  };
+  mk('−', 'Alejar', () => { viewport.controls.radius = Math.min(viewport.controls.maxRadius, viewport.controls.radius + 2); viewport.controls.update(); });
+  mk('⟲', 'Reiniciar vista', () => viewport.resetView());
+  mk('+', 'Acercar', () => { viewport.controls.radius = Math.max(viewport.controls.minRadius, viewport.controls.radius - 2); viewport.controls.update(); });
 }
 
-function formationInfo(solid) {
-  const family = (solid?.family || '').toLowerCase();
-  if (family.includes('pirám') || family.includes('tetra') || family.includes('octa')) return {
-    explain: 'Una base define la figura; después aparecen las caras que convergen para formar el vértice.',
-    steps: ['Preparar la base', 'Iniciar la construcción', 'Levantar el cuerpo', 'Cerrar el sólido']
-  };
-  if (family.includes('cilind') || family.includes('cono')) return {
-    explain: 'Partimos de una figura circular y observamos cómo la extensión en altura genera el cuerpo.',
-    steps: ['Preparar la base', 'Iniciar la extensión', 'Extender en altura', 'Completar el sólido']
-  };
-  if (family.includes('esfer')) return {
-    explain: 'La figura se expande alrededor de su centro hasta alcanzar su forma esférica completa.',
-    steps: ['Marcar el centro', 'Iniciar la expansión', 'Expandir la superficie', 'Completar la esfera']
-  };
-  return {
-    explain: 'Una base plana se extiende en una dirección para construir el cuerpo tridimensional.',
-    steps: ['Preparar la base', 'Iniciar la extensión', 'Extender en altura', 'Completar el sólido']
-  };
-}
-
-function setupFormationControls() {
-  const viewport = ExploreState.viewport;
-  const solid = ExploreState.solidDef;
-  if (!viewport || !solid) return;
-  const info = formationInfo(solid);
-  document.getElementById('formation-explain').textContent = info.explain;
-  const stageEl = document.getElementById('formation-stage');
-  const bar = document.getElementById('formation-progress-bar');
-  const update = () => {
-    const stage = Math.round(viewport.formation.stage);
-    const idx = Math.max(0, Math.min(3, stage - 1));
-    const labels = ['Listo para comenzar', ...info.steps];
-    stageEl.textContent = stage === 0 ? labels[0] : `Paso ${stage} · ${labels[idx + 1] || labels[labels.length - 1]}`;
-    bar.style.width = `${Math.round((viewport.formation.stage / 4) * 100)}%`;
-    document.getElementById('btn-formation-play').textContent = viewport.formation.playing ? '⏸ Construyendo…' : (stage >= 4 ? '▶ Repetir' : '▶ Construir');
-  };
-  document.getElementById('btn-formation-play').onclick = () => { viewport.playFormation(); update(); };
-  document.getElementById('btn-formation-next').onclick = () => { viewport.animateFormationTo(Math.min(4, Math.ceil(viewport.formation.stage) + 1)); update(); };
-  document.getElementById('btn-formation-prev').onclick = () => { viewport.animateFormationTo(Math.max(0, Math.floor(viewport.formation.stage) - 1)); update(); };
-  document.getElementById('btn-formation-reset').onclick = () => { viewport.resetFormation(); update(); };
-  update();
-  if (!viewport._formationUiLoop) {
-    viewport._formationUiLoop = true;
-    const tick = () => { update(); requestAnimationFrame(tick); };
-    requestAnimationFrame(tick);
+/* ---------- Elementos + Euler ---------- */
+function setupElementsPanel() {
+  if (!Elements.viewport) {
+    Elements.viewport = new Lab3DViewport(document.getElementById('canvas-elements'));
+    activeViewports.add(Elements.viewport);
+    renderToolButtons(document.getElementById('elements-tools'), Elements.viewport);
   }
+  const def = Session.solidDef;
+  document.getElementById('elements-solid-name').textContent = def.name;
+
+  Elements.viewport.setGeometry(def.builder(Session.dims));
+  Elements.viewport.material.transparent = true;
+  Elements.viewport.material.opacity = 0.55;
+
+  const helpers = buildTopologyHelpers(Elements.viewport.mesh.geometry);
+  helpers.edges.visible = false;
+  helpers.vertices.visible = false;
+  Elements.viewport.scene.add(helpers.edges, helpers.vertices);
+  Elements.helpers = helpers;
+
+  const topo = getTopology(def);
+  const grid = document.getElementById('element-grid');
+  grid.innerHTML = '';
+  const items = topo
+    ? [
+        { key: 'faces', name: 'Caras (C)', count: topo.F },
+        { key: 'vertices', name: 'Vértices (V)', count: topo.V },
+        { key: 'edges', name: 'Aristas (A)', count: topo.E },
+      ]
+    : [
+        { key: 'faces', name: 'Superficies', count: def.id === 'esfera' ? 1 : def.id === 'cono' ? 2 : 3 },
+        { key: 'vertices', name: 'Vértices', count: def.id === 'cono' ? 1 : 0 },
+        { key: 'edges', name: 'Aristas', count: 0 },
+      ];
+
+  items.forEach((it) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'element-item';
+    b.setAttribute('aria-pressed', 'false');
+    b.innerHTML = `<div class="el-count">${it.count}</div><div class="el-name">${it.name}</div>`;
+    b.addEventListener('click', () => {
+      const on = b.getAttribute('aria-pressed') !== 'true';
+      grid.querySelectorAll('.element-item').forEach((x) => x.setAttribute('aria-pressed', 'false'));
+      b.setAttribute('aria-pressed', String(on));
+      Elements.helpers.edges.visible = on && it.key === 'edges';
+      Elements.helpers.vertices.visible = on && it.key === 'vertices';
+      Elements.viewport.material.opacity = on && it.key === 'faces' ? 0.95 : 0.5;
+    });
+    grid.appendChild(b);
+  });
+
+  renderEulerBlock(topo);
 }
 
-
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('btn-descomponer').addEventListener('click', () => {
-    const panel = document.getElementById('explore-components');
-    const willShow = panel.hidden;
-    panel.hidden = !willShow;
-    if (willShow) renderComponentsPanel(panel, ExploreState.solidDef, ExploreState.dims);
-  });
-
-  document.getElementById('btn-go-calculate').addEventListener('click', () => {
-    Navigation.goTo('calculate');
-    selectCalculateSolid(ExploreState.solidDef, true);
-  });
-});
+function renderEulerBlock(topo) {
+  const el = document.getElementById('euler-block');
+  if (!topo) {
+    el.innerHTML = `<h3>Relación de Euler</h3>
+      <p style="font-size:12.5px; margin:0;">La relación <strong>C + V = A + 2</strong> se cumple en los <em>poliedros</em>: cuerpos formados únicamente por caras planas. Este es un cuerpo redondo, con superficies curvas, así que no tiene caras ni aristas en ese sentido y la fórmula no se le aplica. Construye un prisma o una pirámide para comprobarla.</p>`;
+    return;
+  }
+  const e = eulerCheck(topo);
+  el.innerHTML = `<h3>Relación de Euler</h3>
+    <div class="euler-box">
+      <div class="euler-formula">
+        C + V = A + 2<br>
+        <span class="cv">${topo.F} + ${topo.V}</span> = <span class="ar">${topo.E} + 2</span><br>
+        <span class="cv">${e.left}</span> = <span class="ar">${e.right}</span>
+      </div>
+      <div class="euler-verdict" style="color:${e.holds ? 'var(--c-green)' : 'var(--c-red)'}">
+        ${e.holds ? '✓ Se cumple la relación de Euler' : '✗ No se cumple'}
+      </div>
+    </div>
+    <p style="font-size:11.5px; margin-top:10px;">Cambia de sólido y verás que la igualdad se mantiene en todos los poliedros, sin importar cuántas caras tengan.</p>`;
+}
 
 /* ============================================================
-   FASE 2 — Calcular
+   FASE 2 · Predicción y cálculo
    ============================================================ */
 const CalcState = { viewport: null, solidDef: null, dims: null, quantity: 'volumen' };
+const CalcMode = { mode: 'free' };
+const RetoState = { level: 1, current: null };
 
-function initCalculatePhase() {
-  renderCatalog(document.getElementById('catalog-calculate'), (s) => selectCalculateSolid(s, false));
+function ensureCalcViewport() {
+  if (!CalcState.viewport) {
+    CalcState.viewport = new Lab3DViewport(document.getElementById('canvas-calculate'));
+    activeViewports.add(CalcState.viewport);
+  }
 }
 
-function selectCalculateSolid(solidDef, fromExplore) {
-  CalcState.solidDef = solidDef;
-  CalcState.dims = getCurrentDims(solidDef.id);
-  CalcState.quantity = availableQuantities(solidDef.id)[0].key === 'areaBase' ? 'volumen' : 'volumen';
+function syncCalculateWithSession() {
+  if (CalcMode.mode === 'reto') { document.getElementById('calc-no-solid').hidden = true; return; }
+  if (!Session.solidDef) {
+    document.getElementById('calc-no-solid').hidden = false;
+    document.getElementById('calculate-lab').hidden = true;
+    return;
+  }
+  document.getElementById('calc-no-solid').hidden = true;
+  selectCalculateSolid(Session.solidDef);
+}
 
+function selectCalculateSolid(solidDef) {
+  CalcState.solidDef = solidDef;
+  CalcState.dims = Session.dims;
   document.getElementById('calculate-lab').hidden = false;
   document.getElementById('calc-solid-name').textContent = solidDef.name;
-
-  if (fromExplore) {
-    document.getElementById('catalog-calculate').querySelectorAll('.solid-card').forEach((c) => {
-      c.setAttribute('aria-current', c.querySelector('.name').textContent === solidDef.name ? 'true' : 'false');
-    });
-  }
-
-  if (!CalcState.viewport) {
-    try {
-      CalcState.viewport = new Lab3DViewport(document.getElementById('canvas-calculate'));
-      activeViewports.add(CalcState.viewport);
-    } catch (err) {
-      show3DFallback(document.getElementById('canvas-calculate'), err);
-      window.GEOM3D_DIAG?.add('error', 'No se pudo iniciar la vista 3D', err.message);
-      return;
-    }
-  }
+  ensureCalcViewport();
   rebuildCalcGeometry();
-
   renderDimensionPanel(document.getElementById('calc-dims'), solidDef, CalcState.dims, () => {
-    rebuildCalcGeometry();
-    updateCalcHud();
-    resetCalcAnswerUI();
+    rebuildCalcGeometry(); updateCalcHud(); resetCalcAnswerUI();
   });
-
   renderQuantityChips();
   resetCalcAnswerUI();
   updateCalcHud();
 }
 
 function renderQuantityChips() {
-  const chipContainer = document.getElementById('calc-quantity-chips');
   const quantities = availableQuantities(CalcState.solidDef.id);
-  if (!quantities.find((q) => q.key === CalcState.quantity)) CalcState.quantity = quantities[quantities.length - 1].key;
-  renderChipRow(chipContainer, quantities.map((q) => ({
+  if (!quantities.find((q) => q.key === CalcState.quantity)) CalcState.quantity = 'volumen';
+  renderChipRow(document.getElementById('calc-quantity-chips'), quantities.map((q) => ({
     label: q.label,
     active: () => CalcState.quantity === q.key,
-    onToggle: () => {
-      CalcState.quantity = q.key;
-      renderQuantityChips();
-      resetCalcAnswerUI();
-    },
+    onToggle: () => { CalcState.quantity = q.key; renderQuantityChips(); resetCalcAnswerUI(); },
   })));
-  const unitSuffix = quantities.find((q) => q.key === CalcState.quantity);
-  document.getElementById('calc-unit-suffix').textContent = unitSuffix.unit;
+  const u = quantities.find((q) => q.key === CalcState.quantity);
+  if (u) document.getElementById('calc-unit-suffix').textContent = u.unit;
 }
 
 function rebuildCalcGeometry() {
-  const geo = CalcState.solidDef.builder(CalcState.dims);
-  CalcState.viewport.setGeometry(geo);
+  CalcState.viewport.setGeometry(CalcState.solidDef.builder(CalcState.dims));
 }
 
 function updateCalcHud() {
-  const hud = document.getElementById('calc-hud');
-  const d = CalcState.dims;
-  hud.innerHTML = Object.entries(d).map(([k, v]) => {
-    const dimDef = CalcState.solidDef.dims.find((x) => x.key === k);
-    return `<div><span class="hud-label">${dimDef.label}:</span> ${fmt(v, 1)} ${dimDef.unit}</div>`;
-  }).join('');
+  document.getElementById('calc-hud').innerHTML = CalcState.solidDef.dims.map((d) =>
+    `<div><span class="hud-label">${d.label}:</span> ${fmt(CalcState.dims[d.key], 1)} ${d.unit}</div>`).join('');
 }
 
 function resetCalcAnswerUI() {
   document.getElementById('calc-answer').value = '';
   const fb = document.getElementById('calc-feedback');
-  fb.className = 'feedback';
-  fb.textContent = '';
+  fb.className = 'feedback'; fb.textContent = '';
   document.getElementById('calc-procedure').innerHTML = '';
 
   const inReto = CalcMode.mode === 'reto' && RetoState.current;
   const isInverse = inReto && RetoState.current.inverse;
+  const procBtn = document.getElementById('btn-ver-procedimiento');
 
   if (isInverse) {
-    const targetDef = getSolidDef(RetoState.current.solidId).dims.find((d) => d.key === RetoState.current.targetDimKey);
-    document.getElementById('calc-answer-label').textContent = `${targetDef.label} (${targetDef.unit})`;
-    document.getElementById('calc-instruction').textContent = 'Este reto pide hallar una dimensión, no un área o volumen.';
-    document.getElementById('calc-unit-suffix').textContent = targetDef.unit;
+    const t = getSolidDef(RetoState.current.solidId).dims.find((d) => d.key === RetoState.current.targetDimKey);
+    document.getElementById('calc-answer-label').textContent = `${t.label} (${t.unit})`;
+    document.getElementById('calc-instruction').textContent = 'Este reto pide hallar una dimensión, no un área ni un volumen.';
+    document.getElementById('calc-unit-suffix').textContent = t.unit;
     document.getElementById('calc-quantity-block').hidden = true;
-    document.getElementById('btn-ver-procedimiento').disabled = true;
-    document.getElementById('btn-ver-procedimiento').title = 'No disponible para retos de nivel 4';
+    procBtn.disabled = true;
   } else {
     document.getElementById('calc-answer-label').textContent = 'Resultado';
     document.getElementById('calc-instruction').textContent = 'Calcula tú el resultado antes de comprobar.';
     document.getElementById('calc-quantity-block').hidden = false;
-    document.getElementById('btn-ver-procedimiento').disabled = false;
-    document.getElementById('btn-ver-procedimiento').title = '';
+    procBtn.disabled = false;
     const q = availableQuantities(CalcState.solidDef.id).find((x) => x.key === CalcState.quantity);
     if (q) document.getElementById('calc-unit-suffix').textContent = q.unit;
   }
   updatePredictPanel();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('btn-comprobar').addEventListener('click', () => {
-    const raw = document.getElementById('calc-answer').value.trim().replace(',', '.');
-    const studentValue = parseFloat(raw);
-    const inReto = CalcMode.mode === 'reto' && RetoState.current;
-    const isInverse = inReto && RetoState.current.inverse;
-    const fb = document.getElementById('calc-feedback');
-
-    let result;
-    if (isInverse) {
-      const correctValue = RetoState.current.answerValue;
-      result = checkAnswer(studentValue, correctValue, { solidId: RetoState.current.solidId, dims: RetoState.current.dims, quantity: 'dimension' });
-    } else {
-      const correctValue = trueValueFor(CalcState.solidDef.id, CalcState.dims, CalcState.quantity);
-      result = checkAnswer(studentValue, correctValue, {
-        solidId: CalcState.solidDef.id, dims: CalcState.dims, quantity: CalcState.quantity,
-      });
-    }
-
-    fb.className = `feedback show feedback--${result.status === 'correct' ? 'correct' : result.status === 'approx' ? 'approx' : 'incorrect'}`;
-    fb.textContent = result.message;
-
-    if (inReto) {
-      if (result.status === 'correct') State.set('retosCompleted', (State.get('retosCompleted') || 0) + 1);
-    } else {
-      State.recordAttempt(CalcState.solidDef.id, result.status === 'correct');
-    }
-  });
-
-  document.getElementById('btn-ver-procedimiento').addEventListener('click', () => {
-    if (document.getElementById('btn-ver-procedimiento').disabled) return;
-    const steps = buildProcedure(CalcState.solidDef.id, CalcState.dims, CalcState.quantity);
-    const container = document.getElementById('calc-procedure');
-    container.innerHTML = '';
-    steps.forEach((text, i) => {
-      const div = document.createElement('div');
-      div.className = 'step';
-      div.style.animationDelay = `${i * 0.12}s`;
-      div.textContent = text;
-      container.appendChild(div);
-    });
-  });
-});
-
-/* ============================================================
-   Bootstrap
-   ============================================================ */
-document.addEventListener('DOMContentLoaded', () => {
-  Navigation.init();
-  initExplorePhase();
-  initCalculatePhase();
-  initCheckPhase();
-  initExploreModeSwitch();
-  initCalcModeSwitch();
-  initRetoUI();
-  wireTopbarModals();
-
-  if (State.get('teacher.showFormulas') === false) {
-    document.getElementById('btn-ver-procedimiento').hidden = true;
-  }
-
-  document.addEventListener('geom3d:phasechange', (e) => {
-    // Trigger a resize pass once a view becomes visible again
-    // (canvases sized 0x0 while hidden need a re-measure).
-    requestAnimationFrame(() => {
-      if (ExploreState.viewport) ExploreState.viewport.resize();
-      if (CalcState.viewport) CalcState.viewport.resize();
-      if (RevolutionState.viewport) RevolutionState.viewport.resize();
-      if (CheckState.liquidViewport) CheckState.liquidViewport.resize();
-      if (CheckState.cubesViewport) CheckState.cubesViewport.resize();
-    });
-  });
-});
-
-/* ============================================================
-   FASE 1 (extra) — Modo "Sólidos de revolución"
-   ============================================================ */
-ExploreState.mode = 'catalog';
-const RevolutionState = { viewport: null, presetId: 'rectangulo_cilindro', angleDeg: 0, playing: false };
-
-function initExploreModeSwitch() {
-  const container = document.getElementById('explore-mode-switch');
-  renderChipRow(container, [
-    { label: 'Catálogo', active: () => ExploreState.mode !== 'revolution', onToggle: () => setExploreMode('catalog') },
-    { label: 'Sólidos de revolución', active: () => ExploreState.mode === 'revolution', onToggle: () => setExploreMode('revolution') },
-  ]);
-}
-
-function setExploreMode(mode) {
-  ExploreState.mode = mode;
-  document.getElementById('catalog-explore').hidden = mode !== 'catalog';
-  document.getElementById('explore-lab').hidden = mode !== 'catalog' || !ExploreState.solidDef;
-  document.getElementById('revolution-lab').hidden = mode !== 'revolution';
-  initExploreModeSwitch();
-  if (mode === 'revolution') initRevolutionLab();
-}
-
-function initRevolutionLab() {
-  if (!RevolutionState.viewport) {
-    try {
-      RevolutionState.viewport = new Lab3DViewport(document.getElementById('canvas-revolution'));
-      activeViewports.add(RevolutionState.viewport);
-      RevolutionState.viewport.material.color.set(0x2fb7ff);
-    } catch (err) {
-      show3DFallback(document.getElementById('canvas-revolution'), err);
-      window.GEOM3D_DIAG?.add('error', 'No se pudo iniciar revolución 3D', err.message);
-      return;
-    }
-  }
-  renderRevolutionPresetChips();
-  rebuildRevolutionGeometry();
-}
-
-function renderRevolutionPresetChips() {
-  const container = document.getElementById('revolution-presets');
-  renderChipRow(container, Object.keys(REVOLUTION_PRESETS).map((id) => ({
-    label: `${REVOLUTION_PRESETS[id].flatName} → ${REVOLUTION_PRESETS[id].solidName}`,
-    active: () => RevolutionState.presetId === id,
-    onToggle: () => { RevolutionState.presetId = id; RevolutionState.angleDeg = 0; document.getElementById('revolution-angle').value = 0; rebuildRevolutionGeometry(); },
-  })));
-}
-
-function rebuildRevolutionGeometry() {
-  const angleRad = RevolutionState.angleDeg * (Math.PI / 180);
-  const geo = buildRevolutionGeometry(RevolutionState.presetId, angleRad);
-  RevolutionState.viewport.setGeometry(geo);
-  const preset = REVOLUTION_PRESETS[RevolutionState.presetId];
-  document.getElementById('revolution-name').textContent = `${preset.flatName} → ${preset.solidName}`;
-  document.getElementById('revolution-angle-readout').textContent = `${Math.round(RevolutionState.angleDeg)}°`;
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('revolution-angle').addEventListener('input', (e) => {
-    RevolutionState.angleDeg = parseFloat(e.target.value);
-    rebuildRevolutionGeometry();
-  });
-  document.getElementById('btn-rev-reset').addEventListener('click', () => {
-    RevolutionState.angleDeg = 0;
-    document.getElementById('revolution-angle').value = 0;
-    rebuildRevolutionGeometry();
-  });
-  document.getElementById('btn-rev-play').addEventListener('click', (e) => {
-    if (RevolutionState.playing) return;
-    RevolutionState.playing = true;
-    const btn = e.currentTarget;
-    btn.textContent = '⏸';
-    const startDeg = RevolutionState.angleDeg >= 359 ? 0 : RevolutionState.angleDeg;
-    RevolutionState.angleDeg = startDeg;
-    const start = performance.now();
-    const duration = 2600;
-    function step(now) {
-      const t = Math.min(1, (now - start) / duration);
-      RevolutionState.angleDeg = startDeg + t * (360 - startDeg);
-      document.getElementById('revolution-angle').value = RevolutionState.angleDeg;
-      rebuildRevolutionGeometry();
-      if (t < 1 && RevolutionState.playing) requestAnimationFrame(step);
-      else { RevolutionState.playing = false; btn.textContent = '▶'; }
-    }
-    requestAnimationFrame(step);
-  });
-
-  document.getElementById('btn-desarrollo').addEventListener('click', () => {
-    if (!ExploreState.solidDef) return;
-    openModal(`Desarrollo plano — ${ExploreState.solidDef.name}`, (body) => {
-      renderDevelopment(body, ExploreState.solidDef, ExploreState.dims);
-    });
-  });
-});
-
-/* ============================================================
-   FASE 2 (extra) — Modo Reto y Predicción
-   ============================================================ */
-const CalcMode = { mode: 'free' };
-const RetoState = { level: 1, current: null };
-
-function initCalcModeSwitch() {
-  const container = document.getElementById('calc-mode-switch');
-  renderChipRow(container, [
-    { label: 'Libre', active: () => CalcMode.mode === 'free', onToggle: () => setCalcMode('free') },
-    { label: 'Retos', active: () => CalcMode.mode === 'reto', onToggle: () => setCalcMode('reto') },
-  ]);
-}
-
-function setCalcMode(mode) {
-  CalcMode.mode = mode;
-  document.getElementById('catalog-calculate').hidden = mode === 'reto';
-  document.getElementById('reto-panel').hidden = mode !== 'reto';
-  document.getElementById('calculate-lab').hidden = mode === 'reto' ? !RetoState.current : !CalcState.solidDef;
-  initCalcModeSwitch();
-}
-
-function initRetoUI() {
-  const container = document.getElementById('reto-level-chips');
-  renderChipRow(container, [1, 2, 3, 4].map((l) => ({
-    label: `Nivel ${l}`,
-    active: () => RetoState.level === l,
-    onToggle: () => { RetoState.level = l; initRetoUI(); },
-  })));
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('btn-new-reto').addEventListener('click', () => {
-    const challenge = generateChallenge(RetoState.level);
-    RetoState.current = challenge;
-    document.getElementById('reto-prompt-text').textContent = challenge.promptText;
-
-    const solidDef = getSolidDef(challenge.solidId);
-    selectCalculateSolid(solidDef, false);
-    CalcState.dims = { ...challenge.dims };
-    rebuildCalcGeometry();
-    renderDimensionPanel(document.getElementById('calc-dims'), solidDef, CalcState.dims, () => {
-      rebuildCalcGeometry();
-      updateCalcHud();
-      resetCalcAnswerUI();
-    });
-    updateCalcHud();
-
-    if (!challenge.inverse) {
-      CalcState.quantity = challenge.quantity;
-      renderQuantityChips();
-    }
-    document.getElementById('calculate-lab').hidden = false;
-    resetCalcAnswerUI();
-  });
-});
-
-/** Shows/hides and populates the proportionality prediction panel for the current solid+quantity. */
 function updatePredictPanel() {
   const panel = document.getElementById('predict-panel');
   if (!CalcState.solidDef || CalcState.quantity !== 'volumen') { panel.hidden = true; return; }
@@ -727,31 +509,52 @@ function updatePredictPanel() {
   if (!pred) { panel.hidden = true; return; }
   panel.hidden = false;
   document.getElementById('predict-question').textContent = pred.question;
-  const optsContainer = document.getElementById('predict-options');
-  optsContainer.innerHTML = '';
+  const opts = document.getElementById('predict-options');
+  opts.innerHTML = '';
   const fb = document.getElementById('predict-feedback');
   fb.style.display = 'none';
   pred.options.forEach((opt, i) => {
     const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = opt;
+    btn.type = 'button'; btn.textContent = opt;
     btn.addEventListener('click', () => {
-      optsContainer.querySelectorAll('button').forEach((b) => {
+      opts.querySelectorAll('button').forEach((b) => {
         b.removeAttribute('data-chosen'); b.removeAttribute('data-correct'); b.removeAttribute('data-wrong');
       });
       btn.setAttribute('data-chosen', 'true');
-      const correct = i === pred.correctIndex;
-      btn.setAttribute(correct ? 'data-correct' : 'data-wrong', 'true');
+      const ok = i === pred.correctIndex;
+      btn.setAttribute(ok ? 'data-correct' : 'data-wrong', 'true');
       fb.style.display = 'block';
-      fb.style.color = correct ? 'var(--c-green)' : 'var(--c-red)';
+      fb.style.color = ok ? 'var(--c-green)' : 'var(--c-red)';
       fb.textContent = pred.explanation;
     });
-    optsContainer.appendChild(btn);
+    opts.appendChild(btn);
   });
 }
 
+function initCalcModeSwitch() {
+  renderChipRow(document.getElementById('calc-mode-switch'), [
+    { label: 'Mi sólido', active: () => CalcMode.mode === 'free', onToggle: () => setCalcMode('free') },
+    { label: 'Retos', active: () => CalcMode.mode === 'reto', onToggle: () => setCalcMode('reto') },
+  ]);
+}
+
+function setCalcMode(mode) {
+  CalcMode.mode = mode;
+  document.getElementById('reto-panel').hidden = mode !== 'reto';
+  initCalcModeSwitch();
+  if (mode === 'free') { RetoState.current = null; syncCalculateWithSession(); }
+  else document.getElementById('calc-no-solid').hidden = true;
+}
+
+function initRetoUI() {
+  renderChipRow(document.getElementById('reto-level-chips'), [1, 2, 3, 4].map((l) => ({
+    label: `Nivel ${l}`, active: () => RetoState.level === l,
+    onToggle: () => { RetoState.level = l; initRetoUI(); },
+  })));
+}
+
 /* ============================================================
-   FASE 3 — Comprobar (laboratorio experimental)
+   FASE 3 · Comprobar
    ============================================================ */
 const CheckState = {
   solidDef: null, dims: null, currentMethod: 'liquid',
@@ -759,13 +562,15 @@ const CheckState = {
   cubesViewport: null, unitCubesInst: null,
 };
 
-function initCheckPhase() {
-  renderCatalog(document.getElementById('catalog-check'), selectCheckSolid);
-}
-
-function selectCheckSolid(solidDef) {
-  CheckState.solidDef = solidDef;
-  CheckState.dims = getCurrentDims(solidDef.id);
+function syncCheckWithSession() {
+  if (!Session.solidDef) {
+    document.getElementById('check-no-solid').hidden = false;
+    document.getElementById('check-lab').hidden = true;
+    return;
+  }
+  document.getElementById('check-no-solid').hidden = true;
+  CheckState.solidDef = Session.solidDef;
+  CheckState.dims = Session.dims;
   document.getElementById('check-lab').hidden = false;
   document.getElementById('comparison-block').hidden = true;
   document.getElementById('reflection-block').hidden = true;
@@ -773,24 +578,23 @@ function selectCheckSolid(solidDef) {
   initMethodTabs();
   setupLiquidMethod();
   setupCubesMethod();
-  switchMethod('liquid');
+  switchMethod(CheckState.currentMethod);
 }
 
 function initMethodTabs() {
-  const container = document.getElementById('method-tabs');
   const methods = [
     { id: 'liquid', label: '💧 Líquido' },
     { id: 'displacement', label: '🧪 Desplazamiento' },
     { id: 'cubes', label: '🧊 Cubos unitarios' },
   ];
-  container.innerHTML = '';
+  const c = document.getElementById('method-tabs');
+  c.innerHTML = '';
   methods.forEach((m) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = m.label;
-    btn.setAttribute('aria-current', String(CheckState.currentMethod === m.id));
-    btn.addEventListener('click', () => switchMethod(m.id));
-    container.appendChild(btn);
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = m.label;
+    b.setAttribute('aria-current', String(CheckState.currentMethod === m.id));
+    b.addEventListener('click', () => switchMethod(m.id));
+    c.appendChild(b);
   });
 }
 
@@ -808,56 +612,204 @@ function switchMethod(id) {
 
 function setupLiquidMethod() {
   if (!CheckState.liquidViewport) {
-    try {
-      CheckState.liquidViewport = new Lab3DViewport(document.getElementById('canvas-liquid'));
-      activeViewports.add(CheckState.liquidViewport);
-    } catch (err) {
-      show3DFallback(document.getElementById('canvas-liquid'), err);
-      window.GEOM3D_DIAG?.add('error', 'No se pudo iniciar experimento de líquido', err.message);
-      return;
-    }
+    CheckState.liquidViewport = new Lab3DViewport(document.getElementById('canvas-liquid'));
+    activeViewports.add(CheckState.liquidViewport);
   }
   if (CheckState.liquidFillState) { disposeLiquidFill(CheckState.liquidViewport, CheckState.liquidFillState); CheckState.liquidFillState = null; }
-  const geo = CheckState.solidDef.builder(CheckState.dims);
-  CheckState.liquidViewport.setGeometry(geo);
+  CheckState.liquidViewport.setGeometry(CheckState.solidDef.builder(CheckState.dims));
+  CheckState.liquidViewport.material.transparent = true;
+  CheckState.liquidViewport.material.opacity = 0.28;
   document.getElementById('liquid-solid-name').textContent = CheckState.solidDef.name;
-  const vol = Volumes[CheckState.solidDef.id](CheckState.dims);
-  document.getElementById('liquid-target-volume').textContent = fmt(vol);
+  document.getElementById('liquid-target-volume').textContent = fmt(CheckState.solidDef.volume(CheckState.dims));
   document.getElementById('btn-transferir').disabled = true;
-  document.getElementById('liquid-probeta-wrap').style.display = 'none';
-  document.getElementById('liquid-probeta-wrap').innerHTML = '';
+  const wrap = document.getElementById('liquid-probeta-wrap');
+  wrap.style.display = 'none'; wrap.innerHTML = '';
 }
 
 function setupCubesMethod() {
   if (!CheckState.cubesViewport) {
-    try {
-      CheckState.cubesViewport = new Lab3DViewport(document.getElementById('canvas-cubes'));
-      activeViewports.add(CheckState.cubesViewport);
-    } catch (err) {
-      show3DFallback(document.getElementById('canvas-cubes'), err);
-      window.GEOM3D_DIAG?.add('error', 'No se pudo iniciar experimento de cubos', err.message);
-      return;
-    }
+    CheckState.cubesViewport = new Lab3DViewport(document.getElementById('canvas-cubes'));
+    activeViewports.add(CheckState.cubesViewport);
   }
   if (CheckState.unitCubesInst) { disposeUnitCubes(CheckState.cubesViewport, CheckState.unitCubesInst); CheckState.unitCubesInst = null; }
-  const geo = CheckState.solidDef.builder(CheckState.dims);
-  CheckState.cubesViewport.setGeometry(geo);
+  CheckState.cubesViewport.setGeometry(CheckState.solidDef.builder(CheckState.dims));
   CheckState.cubesViewport.material.transparent = true;
   CheckState.cubesViewport.material.opacity = 0.22;
   document.getElementById('cubes-solid-name').textContent = CheckState.solidDef.name;
   document.getElementById('cubes-count').textContent = 'Cantidad de cubos: —';
 }
 
-function showComparisonAndReflection(mathVol, experimentalVol) {
+function showComparisonAndReflection(mathVol, expVol) {
   const block = document.getElementById('comparison-block');
   block.hidden = false;
-  renderComparison(block, computeExperimentComparison(mathVol, experimentalVol));
-  const reflectBlock = document.getElementById('reflection-block');
-  reflectBlock.hidden = false;
-  renderReflection(reflectBlock, CheckState.solidDef.id);
+  renderComparison(block, computeExperimentComparison(mathVol, expVol));
+  const r = document.getElementById('reflection-block');
+  r.hidden = false;
+  renderReflection(r, CheckState.solidDef.id);
 }
 
+/* ============================================================
+   Modales: Progreso / Docente
+   ============================================================ */
+function renderProgressModalBody(body) {
+  const p = computeProgress();
+  body.innerHTML = `
+    <div class="progress-row"><div class="p-label"><span>Exploración</span><span>${p.exploredPct}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${p.exploredPct}%"></div></div></div>
+    <div class="progress-row"><div class="p-label"><span>Cálculo</span><span>${p.calcPct}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${p.calcPct}%"></div></div></div>
+    <div class="progress-row"><div class="p-label"><span>Experimentación</span><span>${p.expPct}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${p.expPct}%"></div></div></div>
+    <p style="font-size:12.5px;">Retos completados: <strong style="color:var(--c-amber)">${p.retosCompleted}</strong></p>`;
+  const grid = document.createElement('div');
+  grid.className = 'badge-grid';
+  p.badges.forEach((b) => {
+    const i = document.createElement('div');
+    i.className = `badge-item${b.earned ? ' earned' : ''}`;
+    i.innerHTML = `<div class="badge-icon">${b.icon}</div><div class="badge-name">${b.name}</div>`;
+    grid.appendChild(i);
+  });
+  body.appendChild(grid);
+}
+
+function renderTeacherModalBody(body) {
+  const teacher = State.data.teacher || (State.data.teacher = { showFormulas: true, hintsEnabled: true });
+  body.innerHTML = `
+    <div class="teacher-toggle-row"><span>Mostrar botón "Ver procedimiento"</span>
+      <label class="switch"><input type="checkbox" id="teach-formulas" ${teacher.showFormulas ? 'checked' : ''}/><span class="slider"></span></label></div>
+    <div class="teacher-toggle-row"><span>Retroalimentación específica (pistas de error)</span>
+      <label class="switch"><input type="checkbox" id="teach-hints" ${teacher.hintsEnabled ? 'checked' : ''}/><span class="slider"></span></label></div>
+    <h3 style="margin-top:16px; font-size:12px; text-transform:uppercase; color:var(--c-text-dim);">Resultados por sólido</h3>
+    <table class="teacher-table"><thead><tr><th>Sólido</th><th>Intentos</th><th>Aciertos</th><th>%</th></tr></thead>
+    <tbody id="teacher-stats-body"></tbody></table>
+    <button class="btn btn--ghost btn--sm" id="btn-reset-progress" style="margin-top:14px;">↺ Reiniciar todas las actividades</button>`;
+  const tbody = body.querySelector('#teacher-stats-body');
+  const calc = State.data.progress.calculate || {};
+  const ids = Object.keys(calc);
+  if (!ids.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--c-text-faint);">Aún no hay intentos registrados.</td></tr>';
+  } else ids.forEach((id) => {
+    const def = getSolidDef(id); const e = calc[id];
+    const pct = e.attempts ? Math.round((e.correct / e.attempts) * 100) : 0;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${def ? def.shortName : id}</td><td>${e.attempts}</td><td>${e.correct}</td><td>${pct}%</td>`;
+    tbody.appendChild(tr);
+  });
+  body.querySelector('#teach-formulas').addEventListener('change', (e) => {
+    State.set('teacher.showFormulas', e.target.checked);
+    document.getElementById('btn-ver-procedimiento').hidden = !e.target.checked;
+  });
+  body.querySelector('#teach-hints').addEventListener('change', (e) => State.set('teacher.hintsEnabled', e.target.checked));
+  body.querySelector('#btn-reset-progress').addEventListener('click', () => {
+    if (confirm('¿Reiniciar todo el progreso guardado? Esta acción no se puede deshacer.')) {
+      State.reset(); closeModal(); location.reload();
+    }
+  });
+}
+
+/* ============================================================
+   Arranque y cableado de eventos
+   ============================================================ */
 document.addEventListener('DOMContentLoaded', () => {
+  Navigation.init();
+  renderWizard('root');
+  initCalcModeSwitch();
+  initRetoUI();
+  syncCalculateWithSession();
+  syncCheckWithSession();
+
+  if (State.get('teacher.showFormulas') === false) {
+    document.getElementById('btn-ver-procedimiento').hidden = true;
+  }
+
+  /* --- Plegado / revolución --- */
+  const foldSlider = document.getElementById('fold-slider');
+  const applyFold = () => {
+    if (Session.solidDef.group === 'redondo') rebuildBuild();
+    else if (Build.net) Build.net.setFold(Build.foldT);
+    updateFoldReadout(Build.foldT);
+  };
+  foldSlider.addEventListener('input', (e) => {
+    Build.foldT = parseFloat(e.target.value) / 100;
+    applyFold();
+  });
+  document.getElementById('btn-fold-reset').addEventListener('click', () => {
+    Build.foldT = 0; foldSlider.value = 0; applyFold();
+  });
+  document.getElementById('btn-fold-play').addEventListener('click', (e) => {
+    const btn = e.currentTarget;
+    if (Build.playing) { Build.playing = false; btn.textContent = '▶'; return; }
+    Build.playing = true; btn.textContent = '⏸';
+    const from = Build.foldT >= 0.999 ? 0 : Build.foldT;
+    const start = performance.now(), duration = 2200;
+    (function step(now) {
+      if (!Build.playing) { btn.textContent = '▶'; return; }
+      const t = Math.min(1, (now - start) / duration);
+      Build.foldT = from + t * (1 - from);
+      foldSlider.value = Build.foldT * 100;
+      applyFold();
+      if (t < 1) requestAnimationFrame(step);
+      else { Build.playing = false; btn.textContent = '▶'; }
+    })(performance.now());
+  });
+
+  document.getElementById('btn-go-elements').addEventListener('click', () => switchWsTab('elements'));
+  document.getElementById('btn-go-calculate').addEventListener('click', () => {
+    setCalcMode('free');
+    Navigation.goTo('calculate');
+  });
+
+  /* --- Fase 2 --- */
+  document.getElementById('btn-comprobar').addEventListener('click', () => {
+    const raw = document.getElementById('calc-answer').value.trim().replace(',', '.');
+    const studentValue = parseFloat(raw);
+    const inReto = CalcMode.mode === 'reto' && RetoState.current;
+    const isInverse = inReto && RetoState.current.inverse;
+    let result;
+    if (isInverse) {
+      result = checkAnswer(studentValue, RetoState.current.answerValue,
+        { solidId: RetoState.current.solidId, dims: RetoState.current.dims, quantity: 'dimension' });
+    } else {
+      const correct = trueValueFor(CalcState.solidDef.id, CalcState.dims, CalcState.quantity);
+      result = checkAnswer(studentValue, correct,
+        { solidId: CalcState.solidDef.id, dims: CalcState.dims, quantity: CalcState.quantity });
+    }
+    const fb = document.getElementById('calc-feedback');
+    fb.className = `feedback show feedback--${result.status === 'correct' ? 'correct' : result.status === 'approx' ? 'approx' : 'incorrect'}`;
+    fb.textContent = result.message;
+    if (inReto) { if (result.status === 'correct') State.set('retosCompleted', (State.get('retosCompleted') || 0) + 1); }
+    else State.recordAttempt(CalcState.solidDef.id, result.status === 'correct');
+  });
+
+  document.getElementById('btn-ver-procedimiento').addEventListener('click', (e) => {
+    if (e.currentTarget.disabled) return;
+    const steps = buildProcedure(CalcState.solidDef.id, CalcState.dims, CalcState.quantity);
+    const c = document.getElementById('calc-procedure');
+    c.innerHTML = '';
+    steps.forEach((text, i) => {
+      const d = document.createElement('div');
+      d.className = 'step'; d.style.animationDelay = `${i * 0.12}s`; d.textContent = text;
+      c.appendChild(d);
+    });
+  });
+
+  document.getElementById('btn-new-reto').addEventListener('click', () => {
+    const ch = generateChallenge(RetoState.level);
+    RetoState.current = ch;
+    document.getElementById('reto-prompt-text').textContent = ch.promptText;
+    const def = getSolidDef(ch.solidId);
+    CalcState.solidDef = def;
+    CalcState.dims = { ...ch.dims };
+    document.getElementById('calculate-lab').hidden = false;
+    document.getElementById('calc-solid-name').textContent = def.name;
+    ensureCalcViewport();
+    rebuildCalcGeometry();
+    renderDimensionPanel(document.getElementById('calc-dims'), def, CalcState.dims, () => {
+      rebuildCalcGeometry(); updateCalcHud(); resetCalcAnswerUI();
+    });
+    updateCalcHud();
+    if (!ch.inverse) { CalcState.quantity = ch.quantity; renderQuantityChips(); }
+    resetCalcAnswerUI();
+  });
+
+  /* --- Fase 3 --- */
   document.getElementById('btn-llenar').addEventListener('click', () => {
     if (CheckState.liquidFillState) disposeLiquidFill(CheckState.liquidViewport, CheckState.liquidFillState);
     CheckState.liquidFillState = createLiquidFill(CheckState.liquidViewport);
@@ -868,46 +820,37 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('btn-transferir').addEventListener('click', () => {
-    const vol = Volumes[CheckState.solidDef.id](CheckState.dims);
-    const experimentalML = Math.round(vol);
-    const maxML = niceScaleMax(experimentalML);
+    const vol = CheckState.solidDef.volume(CheckState.dims);
+    const expML = Math.round(vol);
+    const maxML = niceScaleMax(expML);
     const wrap = document.getElementById('liquid-probeta-wrap');
     wrap.style.display = 'flex';
     wrap.innerHTML = `<div class="probeta-box">${probetaSVG('probeta-liquid', 0, maxML)}<div class="probeta-caption">Volumen experimental</div><div class="probeta-value" id="liquid-probeta-value">0 ml</div></div>`;
-
     requestAnimationFrame(() => {
-      const fillRect = document.querySelector('#probeta-liquid .probeta-fill');
-      const tubeTop = 20, tubeBottom = 190, tubeH = tubeBottom - tubeTop;
-      const start = performance.now(); const duration = 1000;
-      function step(now) {
-        const t = Math.min(1, (now - start) / duration);
+      const rect = document.querySelector('#probeta-liquid .probeta-fill');
+      const top = 20, bottom = 190, H = bottom - top;
+      const start = performance.now(), dur = 1000;
+      (function step(now) {
+        const t = Math.min(1, (now - start) / dur);
         const eased = 1 - Math.pow(1 - t, 3);
-        const currentML = eased * experimentalML;
-        const frac = currentML / maxML;
-        fillRect.setAttribute('y', tubeBottom - frac * tubeH);
-        fillRect.setAttribute('height', frac * tubeH);
-        document.getElementById('liquid-probeta-value').textContent = `${fmt(currentML, 0)} ml`;
+        const cur = eased * expML, frac = cur / maxML;
+        rect.setAttribute('y', bottom - frac * H);
+        rect.setAttribute('height', frac * H);
+        document.getElementById('liquid-probeta-value').textContent = `${fmt(cur, 0)} ml`;
         if (t < 1) requestAnimationFrame(step);
-        else {
-          State.markExperiment(CheckState.solidDef.id, 'liquid');
-          showComparisonAndReflection(vol, experimentalML);
-        }
-      }
-      requestAnimationFrame(step);
+        else { State.markExperiment(CheckState.solidDef.id, 'liquid'); showComparisonAndReflection(vol, expML); }
+      })(performance.now());
     });
   });
 
   document.getElementById('btn-desplazar').addEventListener('click', () => {
-    const vol = Volumes[CheckState.solidDef.id](CheckState.dims);
+    const vol = CheckState.solidDef.volume(CheckState.dims);
     const objML = Math.round(vol);
-    const wrap = document.getElementById('displacement-wrap');
-    const { maxML } = renderDisplacementSetup(wrap, objML);
-    requestAnimationFrame(() => {
-      animateDisplacement(objML, maxML, () => {
-        State.markExperiment(CheckState.solidDef.id, 'displacement');
-        showComparisonAndReflection(vol, objML);
-      });
-    });
+    const { maxML } = renderDisplacementSetup(document.getElementById('displacement-wrap'), objML);
+    requestAnimationFrame(() => animateDisplacement(objML, maxML, () => {
+      State.markExperiment(CheckState.solidDef.id, 'displacement');
+      showComparisonAndReflection(vol, objML);
+    }));
   });
 
   document.getElementById('btn-llenar-cubos').addEventListener('click', () => {
@@ -916,196 +859,22 @@ document.addEventListener('DOMContentLoaded', () => {
     requestAnimationFrame(() => {
       const { positions, cubeSize } = computeUnitCubePositions(CheckState.cubesViewport);
       CheckState.unitCubesInst = renderUnitCubes(CheckState.cubesViewport, positions, cubeSize);
-      const experimentalVol = positions.length * cubeSize ** 3;
-      document.getElementById('cubes-count').textContent = `Cantidad de cubos: ${positions.length}  →  Volumen ≈ ${fmt(experimentalVol, 0)} cm³`;
-      const mathVol = Volumes[CheckState.solidDef.id](CheckState.dims);
+      const expVol = positions.length * cubeSize ** 3;
+      document.getElementById('cubes-count').textContent =
+        `Cantidad de cubos: ${positions.length} → Volumen ≈ ${fmt(expVol, 0)} cm³`;
       State.markExperiment(CheckState.solidDef.id, 'cubes');
-      showComparisonAndReflection(mathVol, experimentalVol);
+      showComparisonAndReflection(CheckState.solidDef.volume(CheckState.dims), expVol);
     });
   });
-});
 
-/* ============================================================
-   Topbar modals — Progreso / Docente
-   ============================================================ */
-function wireTopbarModals() {
-  document.getElementById('btn-open-progress').addEventListener('click', () => {
-    openModal('Mi progreso', renderProgressModalBody);
-  });
-  document.getElementById('btn-open-teacher').addEventListener('click', () => {
-    openModal('Panel del docente', renderTeacherModalBody);
-  });
-  document.getElementById('btn-open-diagnostics')?.addEventListener('click', () => {
-    openModal('Diagnóstico técnico', renderDiagnosticsModalBody);
-  });
-}
+  /* --- Modales --- */
+  document.getElementById('btn-open-progress').addEventListener('click', () => openModal('Mi progreso', renderProgressModalBody));
+  document.getElementById('btn-open-teacher').addEventListener('click', () => openModal('Panel del docente', renderTeacherModalBody));
 
-function renderProgressModalBody(body) {
-  const p = computeProgress();
-  body.innerHTML = `
-    <div class="progress-row"><div class="p-label"><span>Exploración</span><span>${p.exploredPct}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${p.exploredPct}%"></div></div></div>
-    <div class="progress-row"><div class="p-label"><span>Cálculo</span><span>${p.calcPct}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${p.calcPct}%"></div></div></div>
-    <div class="progress-row"><div class="p-label"><span>Experimentación</span><span>${p.expPct}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${p.expPct}%"></div></div></div>
-    <p style="font-size:12.5px;">Retos completados: <strong style="color:var(--c-amber)">${p.retosCompleted}</strong></p>
-  `;
-  const grid = document.createElement('div');
-  grid.className = 'badge-grid';
-  p.badges.forEach((b) => {
-    const item = document.createElement('div');
-    item.className = `badge-item${b.earned ? ' earned' : ''}`;
-    item.innerHTML = `<div class="badge-icon">${b.icon}</div><div class="badge-name">${b.name}</div>`;
-    grid.appendChild(item);
-  });
-  body.appendChild(grid);
-}
-
-function renderDiagnosticsModalBody(body) {
-  const d = window.GEOM3D_DIAG?.summary?.() || {};
-  const list = window.GEOM3D_DIAG?.issues || [];
-  const state = State.get('phase') || 'explore';
-  body.innerHTML = `
-    <div class="diagnostic-grid">
-      <div><span>Versión</span><strong>${d.version || '—'}</strong></div>
-      <div><span>Conexión</span><strong>${d.online ? 'En línea' : 'Sin conexión'}</strong></div>
-      <div><span>Three.js</span><strong>${d.three ? 'OK' : 'FALTA'}</strong></div>
-      <div><span>WebGL</span><strong>${d.webgl ? 'OK' : 'NO DISPONIBLE'}</strong></div>
-      <div><span>Almacenamiento</span><strong>${d.localStorage ? 'OK' : 'BLOQUEADO'}</strong></div>
-      <div><span>Fase actual</span><strong>${state}</strong></div>
-    </div>
-    <h3 style="margin-top:16px;font-size:12px;text-transform:uppercase;color:var(--c-text-dim);">Eventos detectados (${list.length})</h3>
-    <div class="diagnostic-list">${list.length ? list.slice(-12).reverse().map(x => `<div class="diag-item diag-${x.type}"><b>${x.type.toUpperCase()}</b><span>${x.message}</span><small>${x.detail || ''}</small></div>`).join('') : '<p style="color:var(--c-text-faint)">No se han detectado errores durante esta sesión.</p>'}</div>
-    <button class="btn btn--ghost btn--sm" id="btn-clear-diagnostics" style="margin-top:12px">Limpiar diagnóstico</button>
-  `;
-  body.querySelector('#btn-clear-diagnostics').addEventListener('click', () => { window.GEOM3D_DIAG?.clear(); closeModal(); openModal('Diagnóstico técnico', renderDiagnosticsModalBody); });
-}
-
-function renderTeacherModalBody(body) {
-  const teacher = State.data.teacher || (State.data.teacher = { showFormulas: true, hintsEnabled: true });
-  body.innerHTML = `
-    <div class="teacher-toggle-row">
-      <span>Mostrar botón "Ver procedimiento"</span>
-      <label class="switch"><input type="checkbox" id="teach-formulas" ${teacher.showFormulas ? 'checked' : ''}/><span class="slider"></span></label>
-    </div>
-    <div class="teacher-toggle-row">
-      <span>Retroalimentación específica (pistas de error)</span>
-      <label class="switch"><input type="checkbox" id="teach-hints" ${teacher.hintsEnabled ? 'checked' : ''}/><span class="slider"></span></label>
-    </div>
-    <h3 style="margin-top:16px; font-size:12px; text-transform:uppercase; color:var(--c-text-dim);">Resultados por sólido</h3>
-    <table class="teacher-table">
-      <thead><tr><th>Sólido</th><th>Intentos</th><th>Aciertos</th><th>% aciertos</th></tr></thead>
-      <tbody id="teacher-stats-body"></tbody>
-    </table>
-    <button class="btn btn--ghost btn--sm" id="btn-reset-progress" style="margin-top:14px;">↺ Reiniciar todas las actividades</button>
-  `;
-  const tbody = body.querySelector('#teacher-stats-body');
-  const calc = State.data.progress.calculate || {};
-  const ids = Object.keys(calc);
-  if (ids.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--c-text-faint);">Aún no hay intentos registrados.</td></tr>';
-  } else {
-    ids.forEach((id) => {
-      const solidDef = getSolidDef(id);
-      const entry = calc[id];
-      const pct = entry.attempts ? Math.round((entry.correct / entry.attempts) * 100) : 0;
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${solidDef ? solidDef.name : id}</td><td>${entry.attempts}</td><td>${entry.correct}</td><td>${pct}%</td>`;
-      tbody.appendChild(tr);
-    });
-  }
-  body.querySelector('#teach-formulas').addEventListener('change', (e) => {
-    State.set('teacher.showFormulas', e.target.checked);
-    document.getElementById('btn-ver-procedimiento').hidden = !e.target.checked;
-  });
-  body.querySelector('#teach-hints').addEventListener('change', (e) => {
-    State.set('teacher.hintsEnabled', e.target.checked);
-  });
-  body.querySelector('#btn-reset-progress').addEventListener('click', () => {
-    if (confirm('¿Reiniciar todo el progreso guardado? Esta acción no se puede deshacer.')) {
-      State.reset();
-      closeModal();
-      location.reload();
-    }
-  });
-}
-
-
-/* ============================================================
-   CAPA PEDAGÓGICA — Ruta de aprendizaje
-   Mantiene visible el propósito de cada etapa y evita que la
-   aplicación se perciba como tres herramientas desconectadas.
-   ============================================================ */
-const LearningRoute = {
-  phaseMeta: {
-    explore: {
-      title: 'Observa → manipula → explica',
-      subtitle: 'Comienza con un sólido: descubre qué dimensiones lo construyen.',
-      step: 1
-    },
-    calculate: {
-      title: 'Mide → relaciona → calcula',
-      subtitle: 'Convierte las dimensiones del modelo en un resultado matemático.',
-      step: 2
-    },
-    check: {
-      title: 'Calcula → experimenta → comprueba',
-      subtitle: 'Verifica que tu resultado coincide con una medición del mundo físico.',
-      step: 3
-    }
-  },
-
-  update(phase) {
-    const meta = this.phaseMeta[phase] || this.phaseMeta.explore;
-    const title = document.getElementById('route-title');
-    const subtitle = document.getElementById('route-subtitle');
-    const status = document.getElementById('route-status');
-    if (title) title.textContent = meta.title;
-    if (subtitle) subtitle.textContent = meta.subtitle;
-    if (status) status.textContent = `${meta.step} / 3 etapas`;
-
-    document.querySelectorAll('.progress-dot').forEach(dot => {
-      const step = this.phaseMeta[dot.dataset.step]?.step || 1;
-      dot.classList.toggle('is-active', step === meta.step);
-      dot.classList.toggle('is-done', step < meta.step);
-    });
-
-    const left = document.getElementById('status-left');
-    if (left) left.textContent = `GEOM3D · Ruta ${meta.step}/3 · ${meta.title}`;
-  },
-
-  announceSolid(name, phase) {
-    const subtitle = document.getElementById('route-subtitle');
-    if (subtitle && name) {
-      const action = phase === 'explore'
-        ? 'Explora sus dimensiones y su estructura.'
-        : phase === 'calculate'
-          ? 'Resuelve antes de pedir el procedimiento.'
-          : 'Comprueba su volumen con un experimento.';
-      subtitle.textContent = `${name}: ${action}`;
-    }
-  }
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-  LearningRoute.update(State.get('phase') || 'explore');
-
+  /* --- Cambio de fase --- */
   document.addEventListener('geom3d:phasechange', (e) => {
-    LearningRoute.update(e.detail.phase);
-  });
-
-  const originalExplore = window.selectExploreSolid;
-  const originalCalculate = window.selectCalculateSolid;
-  // Functions are lexical in this file, so the route is also updated
-  // directly from the selection buttons below.
-  document.addEventListener('click', (e) => {
-    const card = e.target.closest('#catalog-explore .solid-card');
-    if (card) {
-      const name = card.querySelector('.name')?.textContent;
-      if (name) LearningRoute.announceSolid(name, 'explore');
-    }
-    const calcCard = e.target.closest('#catalog-calculate .solid-card');
-    if (calcCard) {
-      const name = calcCard.querySelector('.name')?.textContent;
-      if (name) LearningRoute.announceSolid(name, 'calculate');
-    }
+    if (e.detail.phase === 'calculate') syncCalculateWithSession();
+    if (e.detail.phase === 'check') syncCheckWithSession();
+    requestAnimationFrame(() => activeViewports.forEach((v) => v.resize()));
   });
 });

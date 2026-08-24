@@ -6,7 +6,7 @@
    first-ever visit, the CDN script simply won't be cached yet.
    ============================================================ */
 
-const CACHE_NAME = 'geom3d-shell-v3';
+const CACHE_NAME = 'geom3d-shell-v1';
 
 const APP_SHELL = [
   './',
@@ -16,24 +16,18 @@ const APP_SHELL = [
   './css/components.css',
   './css/responsive.css',
   './js/state.js',
-  './js/diagnostics.js',
   './js/navigation.js',
   './js/app.js',
   './js/geometry/solids.js',
-  './js/geometry/prisms.js',
-  './js/geometry/cylinders.js',
-  './js/geometry/cones.js',
-  './js/geometry/spheres.js',
-  './js/geometry/pyramids.js',
-  './js/geometry/polyhedra.js',
+  './js/geometry/nets.js',
   './js/geometry/revolution.js',
   './js/calculations/formulas.js',
   './js/calculations/areas.js',
   './js/calculations/volumes.js',
+  './js/calculations/topology.js',
   './js/ui/controls.js',
   './js/ui/panels.js',
   './js/ui/feedback.js',
-  './js/ui/development.js',
   './js/experiments/measurement.js',
   './js/experiments/liquid.js',
   './js/experiments/displacement.js',

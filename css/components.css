@@ -488,31 +488,93 @@
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
 
-/* Diagnóstico y fallback 3D */
-.viewport-wrap.is-3d-unavailable { display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg, rgba(10,18,31,.96), rgba(19,35,51,.96)); }
-.viewport-wrap.is-3d-unavailable canvas { display:none; }
-.three-fallback { max-width:330px; padding:22px; display:flex; flex-direction:column; gap:8px; text-align:center; color:var(--c-text); }
-.three-fallback strong { color:var(--c-amber); font-size:16px; }
-.three-fallback span { color:var(--c-text-dim); font-size:13px; line-height:1.5; }
-.three-fallback small { color:var(--c-text-faint); font-size:11px; line-height:1.45; }
-.diagnostic-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-.diagnostic-grid > div { padding:10px; border:1px solid var(--c-border); border-radius:8px; background:rgba(255,255,255,.025); }
-.diagnostic-grid span,.diagnostic-grid strong { display:block; }
-.diagnostic-grid span { font-size:10px; text-transform:uppercase; color:var(--c-text-faint); }
-.diagnostic-grid strong { margin-top:4px; font-family:var(--f-mono); font-size:12px; }
-.diagnostic-list { display:flex; flex-direction:column; gap:6px; max-height:230px; overflow:auto; }
-.diag-item { display:grid; grid-template-columns:58px 1fr; gap:5px; padding:8px; border-radius:7px; background:rgba(255,255,255,.025); font-size:11px; }
-.diag-item b { font-family:var(--f-mono); font-size:9px; }
-.diag-item small { grid-column:2; color:var(--c-text-faint); overflow-wrap:anywhere; }
-.diag-error b { color:var(--c-amber); }
-.diag-warning b { color:var(--c-amber); }
-.diag-info b { color:var(--c-teal); }
+/* ============================================================
+   Asistente de clasificación (wizard) y espacio de trabajo
+   ============================================================ */
+.wizard { padding: 8px 20px 24px; }
 
-/* ---------- Formación dinámica del sólido ---------- */
-.formation-panel { position: relative; overflow: hidden; }
-.formation-explain { font-size: 12px; line-height: 1.45; margin-bottom: 10px; }
-.formation-stage { font-weight:600; font-family: var(--f-mono); font-size: 11px; color: var(--c-amber); margin-bottom: 7px; }
-.formation-progress { height: 6px; background: var(--c-line); border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
-.formation-progress span { display:block; width:0%; height:100%; background: linear-gradient(90deg,var(--c-teal),var(--c-amber)); transition: width .15s ease; }
-.formation-actions { display:flex; gap:6px; flex-wrap:wrap; }
-.formation-actions .btn { flex: 1 1 auto; min-width: 42px; }
+.wizard-breadcrumb {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font-family: var(--f-mono); font-size: 11.5px; color: var(--c-text-faint);
+  margin-bottom: 16px; min-height: 22px;
+}
+.wizard-breadcrumb .crumb {
+  background: var(--c-panel); border: 1px solid var(--c-line);
+  border-radius: 100px; padding: 4px 10px; color: var(--c-teal); cursor: pointer;
+}
+.wizard-breadcrumb .crumb:hover { border-color: var(--c-teal); }
+.wizard-breadcrumb .sep { color: var(--c-text-faint); }
+
+.wizard-question {
+  font-family: var(--f-display); font-size: 19px; margin-bottom: 4px;
+}
+.wizard-hint { font-size: 13px; color: var(--c-text-dim); margin-bottom: 16px; max-width: 62ch; }
+
+.choice-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px;
+}
+.choice-card {
+  background: var(--c-panel); border: 1px solid var(--c-line); border-radius: var(--r-md);
+  padding: 18px 16px; cursor: pointer; text-align: left; color: var(--c-text);
+  font-family: var(--f-body); transition: border-color .15s ease, transform .1s ease;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.choice-card:hover { border-color: var(--c-teal); transform: translateY(-2px); }
+.choice-card .c-glyph { color: var(--c-teal); height: 44px; display:flex; align-items:center; }
+.choice-card .c-glyph svg { width: 42px; height: 42px; }
+.choice-card .c-title { font-weight: 600; font-size: 15px; }
+.choice-card .c-desc { font-size: 12px; color: var(--c-text-dim); line-height: 1.5; }
+
+/* Workspace tabs (Construir / Elementos) */
+.ws-tabs { display: flex; gap: 6px; padding: 0 20px 12px; flex-wrap: wrap; }
+.ws-tabs button {
+  font-family: var(--f-mono); font-size: 11.5px; padding: 9px 14px;
+  border-radius: var(--r-sm); border: 1px solid var(--c-line);
+  background: var(--c-panel); color: var(--c-text-dim); cursor: pointer;
+}
+.ws-tabs button[aria-current="true"] { border-color: var(--c-teal); color: var(--c-teal); background: rgba(23,191,168,0.08); }
+
+.ws-panel { display: none; }
+.ws-panel[data-active="true"] { display: flex; flex: 1; flex-direction: column; }
+
+/* Fold slider */
+.fold-control { display: flex; flex-direction: column; gap: 10px; }
+.fold-readout {
+  font-family: var(--f-mono); font-size: 13px; text-align: center; color: var(--c-text-dim);
+}
+.fold-readout strong { color: var(--c-amber); font-size: 20px; display: block; }
+.fold-stages {
+  display: flex; justify-content: space-between; font-family: var(--f-mono);
+  font-size: 10px; color: var(--c-text-faint); margin-top: -4px;
+}
+.fold-control input[type="range"] {
+  width: 100%; -webkit-appearance: none; height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--c-teal-dim), var(--c-amber)); outline: none;
+}
+.fold-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--c-text); border: 3px solid var(--c-bg); cursor: pointer;
+}
+.fold-control input[type="range"]::-moz-range-thumb {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--c-text);
+  border: 3px solid var(--c-bg); cursor: pointer;
+}
+
+/* Euler verification */
+.euler-box {
+  background: var(--c-bg-raised); border: 1px solid var(--c-line);
+  border-radius: var(--r-md); padding: 14px; text-align: center; margin-top: 12px;
+}
+.euler-formula { font-family: var(--f-mono); font-size: 17px; color: var(--c-text); line-height: 1.9; }
+.euler-formula .cv { color: var(--c-teal); }
+.euler-formula .ar { color: var(--c-amber); }
+.euler-verdict { font-family: var(--f-mono); font-size: 12.5px; margin-top: 8px; color: var(--c-green); }
+
+.element-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.element-item {
+  background: var(--c-bg-raised); border: 1px solid var(--c-line); border-radius: var(--r-sm);
+  padding: 12px 8px; text-align: center; cursor: pointer;
+}
+.element-item[aria-pressed="true"] { border-color: var(--c-teal); background: rgba(23,191,168,0.08); }
+.element-item .el-count { font-family: var(--f-mono); font-size: 22px; color: var(--c-text); }
+.element-item .el-name { font-size: 11px; color: var(--c-text-dim); margin-top: 2px; }

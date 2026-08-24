@@ -5,7 +5,12 @@
    so state stays predictable and easy to save/restore.
    ============================================================ */
 
-const STORAGE_KEY = 'geom3d_state_v1';
+const STORAGE_KEY = 'geom3d_state_v2';
+
+/** Clon profundo por JSON: el estado es siempre serializable, y así
+ *  evitamos depender de structuredClone, que no existe en navegadores
+ *  algo antiguos como los que puede haber en una sala de cómputo. */
+function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
 
 const defaultState = {
   phase: 'explore',          // 'explore' | 'calculate' | 'check'
@@ -30,23 +35,13 @@ const defaultState = {
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return structuredClone(defaultState);
+    if (!raw) return deepClone(defaultState);
     const parsed = JSON.parse(raw);
-    // Merge profundo: conserva nuevos subcampos aunque exista estado antiguo.
-    const merge = (base, extra) => {
-      if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return extra ?? base;
-      const out = { ...base };
-      Object.keys(extra).forEach((key) => {
-        out[key] = (base[key] && typeof base[key] === 'object' && !Array.isArray(base[key]))
-          ? merge(base[key], extra[key])
-          : extra[key];
-      });
-      return out;
-    };
-    return merge(structuredClone(defaultState), parsed);
+    // shallow-merge to survive schema additions between versions
+    return { ...deepClone(defaultState), ...parsed };
   } catch (e) {
     console.warn('GEOM3D: no se pudo leer el estado guardado, usando valores por defecto.', e);
-    return structuredClone(defaultState);
+    return deepClone(defaultState);
   }
 }
 
@@ -96,7 +91,7 @@ const State = {
   },
 
   reset() {
-    this.data = structuredClone(defaultState);
+    this.data = deepClone(defaultState);
     saveState();
   },
 };
