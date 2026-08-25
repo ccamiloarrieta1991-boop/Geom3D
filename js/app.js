@@ -71,8 +71,9 @@ class Lab3DViewport {
     this.clearAll();
     this.customGroup = group;
     this.scene.add(group);
-    const dist = Math.max(14, approxRadius * 3.2);
-    this.controls.minRadius = dist * 0.35;
+    // approxRadius ya es el radio real del objeto; 2.1x deja aire alrededor.
+    const dist = Math.max(14, approxRadius * 2.1);
+    this.controls.minRadius = dist * 0.3;
     this.controls.maxRadius = dist * 3;
     this.controls.reset(dist, this.controls.theta, this.controls.phi);
   }
@@ -289,6 +290,12 @@ function setupBuildPanel() {
   document.getElementById('build-faces').innerHTML =
     `<h3>De qué está formado</h3><p style="font-size:12.5px; margin:0;">${def.facesText}.</p>`;
   rebuildBuild();
+  // El desarrollo plano se lee mucho mejor desde arriba que de perfil,
+  // así que la vista inicial de un poliedro se inclina hacia cenital.
+  if (def.group !== 'redondo') {
+    Build.viewport.controls.phi = 0.75;
+    Build.viewport.controls.update();
+  }
   updateBuildHud();
   updateFoldReadout(Build.foldT);
 }
@@ -305,8 +312,9 @@ function rebuildBuild() {
   }
   const net = buildFoldableNet(def, Session.dims);
   Build.net = net;
-  const maxDim = Math.max(...Object.values(Session.dims));
-  Build.viewport.setGroup(net.group, maxDim * 1.8);
+  // El desarrollo extendido ocupa mucho más espacio que el sólido plegado,
+  // así que la cámara se encuadra con el radio real del desarrollo.
+  Build.viewport.setGroup(net.group, net.flatRadius);
   net.setFold(Build.foldT);
 }
 
@@ -337,6 +345,9 @@ function renderToolButtons(container, viewport) {
 }
 
 /* ---------- Elementos + Euler ---------- */
+const COLOR_BASE = 0x17bfa8;   // teal — estado normal
+const COLOR_FACES = 0xf5a524;  // ámbar — caras resaltadas
+
 function setupElementsPanel() {
   if (!Elements.viewport) {
     Elements.viewport = new Lab3DViewport(document.getElementById('canvas-elements'));
@@ -347,29 +358,36 @@ function setupElementsPanel() {
   document.getElementById('elements-solid-name').textContent = def.name;
 
   Elements.viewport.setGeometry(def.builder(Session.dims));
-  Elements.viewport.material.transparent = true;
-  Elements.viewport.material.opacity = 0.55;
+  Elements.viewport.material.transparent = false;
+  Elements.viewport.material.opacity = 1;
+  Elements.viewport.material.color.set(COLOR_BASE);
 
-  const helpers = buildTopologyHelpers(Elements.viewport.mesh.geometry);
+  const grid = document.getElementById('element-grid');
+
+  // Los cuerpos redondos no son poliedros: no tienen caras planas ni aristas,
+  // así que no se les muestran conteos ni la relación de Euler.
+  if (!isPolyhedron(def)) {
+    Elements.helpers = null;
+    grid.innerHTML = `<p style="grid-column:1/-1; font-size:12.5px; margin:0; line-height:1.6;">
+      Este es un <strong>cuerpo redondo</strong>: está limitado por superficies curvas, no por caras planas.
+      Por eso no se cuentan caras, vértices ni aristas como en un poliedro.<br><br>Está formado por ${def.facesText}.</p>`;
+    renderEulerBlock(null);
+    return;
+  }
+
+  const helpers = buildTopologyHelpers(Elements.viewport.mesh.geometry, def, Session.dims);
   helpers.edges.visible = false;
   helpers.vertices.visible = false;
   Elements.viewport.scene.add(helpers.edges, helpers.vertices);
   Elements.helpers = helpers;
 
   const topo = getTopology(def);
-  const grid = document.getElementById('element-grid');
   grid.innerHTML = '';
-  const items = topo
-    ? [
-        { key: 'faces', name: 'Caras (C)', count: topo.F },
-        { key: 'vertices', name: 'Vértices (V)', count: topo.V },
-        { key: 'edges', name: 'Aristas (A)', count: topo.E },
-      ]
-    : [
-        { key: 'faces', name: 'Superficies', count: def.id === 'esfera' ? 1 : def.id === 'cono' ? 2 : 3 },
-        { key: 'vertices', name: 'Vértices', count: def.id === 'cono' ? 1 : 0 },
-        { key: 'edges', name: 'Aristas', count: 0 },
-      ];
+  const items = [
+    { key: 'faces', name: 'Caras (C)', count: topo.F },
+    { key: 'vertices', name: 'Vértices (V)', count: topo.V },
+    { key: 'edges', name: 'Aristas (A)', count: topo.E },
+  ];
 
   items.forEach((it) => {
     const b = document.createElement('button');
@@ -381,21 +399,39 @@ function setupElementsPanel() {
       const on = b.getAttribute('aria-pressed') !== 'true';
       grid.querySelectorAll('.element-item').forEach((x) => x.setAttribute('aria-pressed', 'false'));
       b.setAttribute('aria-pressed', String(on));
-      Elements.helpers.edges.visible = on && it.key === 'edges';
-      Elements.helpers.vertices.visible = on && it.key === 'vertices';
-      Elements.viewport.material.opacity = on && it.key === 'faces' ? 0.95 : 0.5;
+      applyElementHighlight(on ? it.key : null);
     });
     grid.appendChild(b);
   });
 
+  applyElementHighlight(null);
   renderEulerBlock(topo);
+}
+
+/** Resalta caras (cambiando el color del sólido), vértices o aristas. */
+function applyElementHighlight(key) {
+  const v = Elements.viewport;
+  if (!v || !Elements.helpers) return;
+  Elements.helpers.edges.visible = key === 'edges';
+  Elements.helpers.vertices.visible = key === 'vertices';
+
+  if (key === 'faces') {
+    v.material.color.set(COLOR_FACES);
+    v.material.transparent = false;
+    v.material.opacity = 1;
+  } else {
+    v.material.color.set(COLOR_BASE);
+    // Al observar vértices o aristas conviene ver a través del sólido.
+    v.material.transparent = key !== null;
+    v.material.opacity = key !== null ? 0.35 : 1;
+  }
 }
 
 function renderEulerBlock(topo) {
   const el = document.getElementById('euler-block');
   if (!topo) {
     el.innerHTML = `<h3>Relación de Euler</h3>
-      <p style="font-size:12.5px; margin:0;">La relación <strong>C + V = A + 2</strong> se cumple en los <em>poliedros</em>: cuerpos formados únicamente por caras planas. Este es un cuerpo redondo, con superficies curvas, así que no tiene caras ni aristas en ese sentido y la fórmula no se le aplica. Construye un prisma o una pirámide para comprobarla.</p>`;
+      <p style="font-size:12.5px; margin:0; line-height:1.6;">La relación <strong>C + V = A + 2</strong> es una propiedad exclusiva de los <em>poliedros</em>. Como este cuerpo no tiene caras planas ni aristas, la fórmula no se le aplica. Construye un prisma, una pirámide o un poliedro regular para comprobarla.</p>`;
     return;
   }
   const e = eulerCheck(topo);
@@ -621,9 +657,7 @@ function setupLiquidMethod() {
   CheckState.liquidViewport.material.opacity = 0.28;
   document.getElementById('liquid-solid-name').textContent = CheckState.solidDef.name;
   document.getElementById('liquid-target-volume').textContent = fmt(CheckState.solidDef.volume(CheckState.dims));
-  document.getElementById('btn-transferir').disabled = true;
-  const wrap = document.getElementById('liquid-probeta-wrap');
-  wrap.style.display = 'none'; wrap.innerHTML = '';
+  document.getElementById('liquid-live-readout').textContent = '0,00 cm³  ·  0 ml';
 }
 
 function setupCubesMethod() {
@@ -813,34 +847,21 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-llenar').addEventListener('click', () => {
     if (CheckState.liquidFillState) disposeLiquidFill(CheckState.liquidViewport, CheckState.liquidFillState);
     CheckState.liquidFillState = createLiquidFill(CheckState.liquidViewport);
-    document.getElementById('btn-transferir').disabled = true;
-    animateLiquidFill(CheckState.liquidFillState, 1, 1400, () => {
-      document.getElementById('btn-transferir').disabled = false;
-    });
-  });
+    const total = CheckState.solidDef.volume(CheckState.dims);
+    const readout = document.getElementById('liquid-live-readout');
 
-  document.getElementById('btn-transferir').addEventListener('click', () => {
-    const vol = CheckState.solidDef.volume(CheckState.dims);
-    const expML = Math.round(vol);
-    const maxML = niceScaleMax(expML);
-    const wrap = document.getElementById('liquid-probeta-wrap');
-    wrap.style.display = 'flex';
-    wrap.innerHTML = `<div class="probeta-box">${probetaSVG('probeta-liquid', 0, maxML)}<div class="probeta-caption">Volumen experimental</div><div class="probeta-value" id="liquid-probeta-value">0 ml</div></div>`;
-    requestAnimationFrame(() => {
-      const rect = document.querySelector('#probeta-liquid .probeta-fill');
-      const top = 20, bottom = 190, H = bottom - top;
-      const start = performance.now(), dur = 1000;
-      (function step(now) {
-        const t = Math.min(1, (now - start) / dur);
-        const eased = 1 - Math.pow(1 - t, 3);
-        const cur = eased * expML, frac = cur / maxML;
-        rect.setAttribute('y', bottom - frac * H);
-        rect.setAttribute('height', frac * H);
-        document.getElementById('liquid-probeta-value').textContent = `${fmt(cur, 0)} ml`;
-        if (t < 1) requestAnimationFrame(step);
-        else { State.markExperiment(CheckState.solidDef.id, 'liquid'); showComparisonAndReflection(vol, expML); }
-      })(performance.now());
-    });
+    // El contador avanza con el nivel del líquido: el estudiante ve el
+    // volumen acumulándose y que la capacidad en ml coincide numéricamente
+    // con el volumen en cm³ (1 ml = 1 cm³).
+    animateLiquidFill(CheckState.liquidFillState, 1, 1600,
+      () => {
+        readout.textContent = `${fmt(total)} cm³  ·  ${fmt(total, 0)} ml`;
+        State.markExperiment(CheckState.solidDef.id, 'liquid');
+        const r = document.getElementById('reflection-block');
+        r.hidden = false;
+        renderReflection(r, CheckState.solidDef.id);
+      },
+      (frac) => { readout.textContent = `${fmt(total * frac)} cm³  ·  ${fmt(total * frac, 0)} ml`; });
   });
 
   document.getElementById('btn-desplazar').addEventListener('click', () => {

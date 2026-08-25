@@ -6,7 +6,7 @@
    first-ever visit, the CDN script simply won't be cached yet.
    ============================================================ */
 
-const CACHE_NAME = 'geom3d-shell-v1';
+const CACHE_NAME = 'geom3d-shell-v3';
 
 const APP_SHELL = [
   './',

@@ -18,6 +18,18 @@ function apotemaRegular(lado, n) { return lado / (2 * Math.tan(Math.PI / n)); }
 function circunradioRegular(lado, n) { return lado / (2 * Math.sin(Math.PI / n)); }
 function areaPoligonoRegular(lado, n) { return (n * lado * apotemaRegular(lado, n)) / 2; }
 
+/* Vértices del polígono regular en el mismo orden angular que usa
+   THREE.CylinderGeometry/ConeGeometry (x = R·sen θ, z = R·cos θ),
+   para que los marcadores caigan exactamente sobre las esquinas. */
+function verticesPoligono(R, n, y) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = (i / n) * Math.PI * 2;
+    out.push([R * Math.sin(t), y, R * Math.cos(t)]);
+  }
+  return out;
+}
+
 /* ---------- Formas de base disponibles ---------- */
 const BASE_SHAPES = [
   { key: 'triangular', n: 3, name: 'Triangular', regular: true },
@@ -52,6 +64,13 @@ function makePrismaRegular(shape) {
       return { areaBase, areaLateral, areaTotal: areaLateral + 2 * areaBase };
     },
     volume: ({ lado, alto }) => areaPoligonoRegular(lado, n) * alto,
+    // Vértices exactos: los de las dos bases. Se calculan de la definición
+    // y no de la malla, porque la malla añade un vértice auxiliar en el
+    // centro de cada tapa que NO es un vértice del poliedro.
+    vertices: ({ lado, alto }) => {
+      const R = circunradioRegular(lado, n);
+      return [...verticesPoligono(R, n, alto / 2), ...verticesPoligono(R, n, -alto / 2)];
+    },
     topology: { V: 2 * n, E: 3 * n, F: n + 2 },
     facesText: `${n + 2} caras: 2 bases de ${n} lados y ${n} caras laterales rectangulares`,
   };
@@ -76,6 +95,12 @@ function makePrismaRectangular() {
       return { areaBase, areaLateral, areaTotal: areaLateral + 2 * areaBase };
     },
     volume: ({ largo, ancho, alto }) => largo * ancho * alto,
+    vertices: ({ largo: L, ancho: W, alto: H }) => {
+      const out = [];
+      [-1, 1].forEach((sx) => [-1, 1].forEach((sy) => [-1, 1].forEach((sz) =>
+        out.push([sx * L / 2, sy * H / 2, sz * W / 2]))));
+      return out;
+    },
     topology: { V: 8, E: 12, F: 6 },
     facesText: '6 caras rectangulares (si largo = ancho = alto, es un cubo)',
   };
@@ -102,6 +127,10 @@ function makePiramideRegular(shape) {
       return { areaBase, areaLateral, areaTotal: areaBase + areaLateral };
     },
     volume: ({ lado, altura }) => (areaPoligonoRegular(lado, n) * altura) / 3,
+    vertices: ({ lado, altura }) => [
+      ...verticesPoligono(circunradioRegular(lado, n), n, -altura / 2),
+      [0, altura / 2, 0], // ápice
+    ],
     topology: { V: n + 1, E: 2 * n, F: n + 1 },
     facesText: `${n + 1} caras: 1 base de ${n} lados y ${n} caras laterales triangulares`,
   };
@@ -118,6 +147,10 @@ const TETRAEDRO = {
     return { areaBase: cara, areaLateral: 3 * cara, areaTotal: 4 * cara };
   },
   volume: ({ arista }) => arista ** 3 / (6 * Math.SQRT2),
+  vertices: ({ arista }) => {
+    const h = arista * Math.sqrt(2 / 3);
+    return [...verticesPoligono(arista / Math.sqrt(3), 3, -h / 2), [0, h / 2, 0]];
+  },
   topology: { V: 4, E: 6, F: 4 },
   facesText: '4 caras triangulares equiláteras (es una pirámide triangular con todas sus aristas iguales)',
 };
@@ -132,6 +165,10 @@ const OCTAEDRO = {
     return { areaTotal: 8 * cara };
   },
   volume: ({ arista }) => (Math.sqrt(2) / 3) * arista ** 3,
+  vertices: ({ arista }) => {
+    const R = arista / Math.SQRT2;
+    return [[R,0,0],[-R,0,0],[0,R,0],[0,-R,0],[0,0,R],[0,0,-R]];
+  },
   topology: { V: 6, E: 12, F: 8 },
   facesText: '8 caras triangulares equiláteras (equivale a dos pirámides cuadrangulares unidas por su base)',
 };

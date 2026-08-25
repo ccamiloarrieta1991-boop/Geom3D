@@ -36,8 +36,12 @@ function disposeLiquidFill(viewport, fillState) {
   fillState.mesh.material.dispose();
 }
 
-/** Animates the clipping plane upward over `durationMs`, from empty to `targetFraction` (0-1). */
-function animateLiquidFill(fillState, targetFraction, durationMs, onDone) {
+/**
+ * Anima el plano de recorte hacia arriba durante `durationMs`.
+ * @param {Function} onDone   se llama al terminar
+ * @param {Function} onUpdate se llama en cada cuadro con la fracción llena (0-1)
+ */
+function animateLiquidFill(fillState, targetFraction, durationMs, onDone, onUpdate) {
   const startFrac = fillState.filled;
   const start = performance.now();
   function step(now) {
@@ -47,6 +51,7 @@ function animateLiquidFill(fillState, targetFraction, durationMs, onDone) {
     const y = fillState.minY + frac * (fillState.maxY - fillState.minY);
     fillState.plane.constant = y;
     fillState.filled = frac;
+    if (onUpdate) onUpdate(frac);
     if (t < 1) requestAnimationFrame(step);
     else if (onDone) onDone();
   }

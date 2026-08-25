@@ -47,13 +47,23 @@ function polygonMesh(points2D, color, opacity) {
   shape.closePath();
   const geo = new THREE.ShapeGeometry(shape);
   geo.rotateX(Math.PI / 2); // (x, y) -> (x, 0, y)
-  return new THREE.Mesh(geo, faceMaterial(color, opacity));
+  return withOutline(new THREE.Mesh(geo, faceMaterial(color, opacity)));
+}
+
+/** Añade el contorno de la cara para que se vea dónde va cada pliegue. */
+function withOutline(mesh, color) {
+  const line = new THREE.LineSegments(
+    new THREE.EdgesGeometry(mesh.geometry, 1),
+    new THREE.LineBasicMaterial({ color: color || 0x0a121f })
+  );
+  mesh.add(line);
+  return mesh;
 }
 
 function faceMaterial(color, opacity) {
   return new THREE.MeshStandardMaterial({
     color, side: THREE.DoubleSide, transparent: true,
-    opacity: opacity === undefined ? 0.92 : opacity,
+    opacity: opacity === undefined ? 1 : opacity,
     metalness: 0.1, roughness: 0.55,
   });
 }
@@ -63,7 +73,7 @@ function rectFaceMesh(w, d, color) {
   const geo = new THREE.PlaneGeometry(w, d);
   geo.rotateX(Math.PI / 2);
   geo.translate(0, 0, d / 2);
-  return new THREE.Mesh(geo, faceMaterial(color));
+  return withOutline(new THREE.Mesh(geo, faceMaterial(color)));
 }
 
 /** Triángulo isósceles en XZ: base `w` sobre el eje X, ápice a distancia `d` en +Z. */
@@ -73,7 +83,7 @@ function triFaceMesh(w, d, color) {
     [-w / 2, 0, 0, w / 2, 0, 0, 0, 0, d], 3));
   geo.setIndex([0, 1, 2]);
   geo.computeVertexNormals();
-  return new THREE.Mesh(geo, faceMaterial(color));
+  return withOutline(new THREE.Mesh(geo, faceMaterial(color)));
 }
 
 /** Reexpresa la base en coordenadas locales de la arista `edgeIndex` (arista en el origen, cuerpo hacia +Z). */
@@ -174,10 +184,33 @@ function buildFoldableNet(solidDef, dims) {
     hinges.forEach((h) => {
       h.pivot.rotation.x = (h.mirror ? 1 : -1) * h.angle * clamped;
     });
+    // El desarrollo está apoyado en y=0 y el sólido crece hacia arriba, así
+    // que al plegarse quedaría flotando por encima del centro de la cámara.
+    // Se baja el grupo progresivamente para que el sólido terminado quede
+    // centrado en el origen, que es a donde apunta la cámara.
+    group.position.y = -centerYFinal * clamped;
   }
 
+  // Altura del centro del sólido ya formado (el octaedro ya nace centrado).
+  const centerYFinal = isOctaedro ? 0 : height / 2;
+
   setFold(0);
-  return { group, setFold, foldable: true };
+
+  // Radio del desarrollo extendido: el estado que más espacio ocupa, y con
+  // el que hay que encuadrar la cámara para que no se salga de pantalla.
+  // circunradio = distancia a los vértices; apotema = distancia a las aristas.
+  const circunradio = Math.max(...outline.map(([x, z]) => Math.hypot(x, z)));
+  const apotemaMax = Math.max(...outline.map(([x, z], i) => {
+    const [x2, z2] = outline[(i + 1) % outline.length];
+    return Math.hypot((x + x2) / 2, (z + z2) / 2);
+  }));
+  const flatRadius = isPrisma
+    // base + cara lateral desplegada + tapa (que abarca un diámetro)
+    ? apotemaMax + height + 2 * circunradio
+    // base + cara triangular desplegada (apotema lateral)
+    : apotemaMax + Math.hypot(height, apotemaMax);
+
+  return { group, setFold, foldable: true, flatRadius, centerYFinal };
 }
 
 window.buildFoldableNet = buildFoldableNet;

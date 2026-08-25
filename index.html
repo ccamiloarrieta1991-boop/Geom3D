@@ -213,11 +213,12 @@
           <div class="method-side panel-block">
             <h3>Método 1 · Llenado con líquido</h3>
             <p style="font-size:12.5px;">Volumen calculado: <strong id="liquid-target-volume" style="color:var(--c-amber)">—</strong> cm³</p>
-            <div style="display:flex; gap:8px; margin:10px 0;">
-              <button class="btn btn--primary btn--sm" id="btn-llenar">💧 Llenar</button>
-              <button class="btn btn--ghost btn--sm" id="btn-transferir" disabled>🧪 Transferir</button>
+            <button class="btn btn--primary btn--sm" id="btn-llenar" style="margin:10px 0;">💧 Llenar</button>
+            <div class="compare-item">
+              <span class="compare-label">Líquido contenido</span>
+              <span class="compare-value" id="liquid-live-readout">0,00 cm³ · 0 ml</span>
             </div>
-            <div id="liquid-probeta-wrap" class="probeta-row" style="display:none;"></div>
+            <p style="font-size:12.5px; margin-top:10px;">El líquido toma exactamente la forma del sólido. Observa que la capacidad en mililitros coincide con el volumen en centímetros cúbicos: <strong>1 ml = 1 cm³</strong>.</p>
           </div>
         </div>
 
